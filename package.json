@@ -9,6 +9,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "dev:web": "vite --config vite.web.config.js",
+    "build:web": "vite build --config vite.web.config.js",
     "dist": "electron-vite build && electron-builder",
     "dist:win": "electron-vite build && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
@@ -31,11 +33,34 @@
   "build": {
     "appId": "com.onet.sunrise-erp",
     "productName": "Sunrise Montessori ERP",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "resources/**/*"],
-    "win": { "target": ["nsis"] },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
-    "mac": { "target": ["dmg"] },
-    "linux": { "target": ["AppImage"] }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

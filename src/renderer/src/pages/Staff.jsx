@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Save, FileText, Award, LogOut, RotateCcw } from "lucide-react";
 import { fmtDate, today } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Area, SearchBox, Empty } from "../lib/ui.jsx";
+import { Panel, Modal, Text, Pick, Area, SearchBox, Empty, useToast, useConfirm } from "../lib/ui.jsx";
 import { experienceLetterHtml, joiningLetterHtml } from "../lib/templates";
 
 const DESIGNATIONS = ["Principal", "Vice Principal", "PGT", "TGT", "PRT", "Nursery Teacher",
@@ -17,29 +17,46 @@ const blank = () => ({
 });
 
 export default function Staff({ staff, reload, school, openDoc }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [q, setQ] = useState("");
   const [showLeft, setShowLeft] = useState(false);
   const [edit, setEdit] = useState(null);
 
   const rows = staff.filter((s) =>
     (showLeft || s.status === "Active") &&
-    ((s.name || "") + s.emp_id + s.designation + s.department + s.subject + s.phone)
-      .toLowerCase().includes(q.toLowerCase()));
+    [s.name, s.emp_id, s.designation, s.department, s.subject, s.phone]
+      .map((v) => v ?? "").join(" ").toLowerCase().includes(q.trim().toLowerCase()));
 
   const save = async () => {
-    if (!edit.name.trim()) return alert("Enter the staff member's name.");
+    if (!(edit.name || "").trim()) return toast.warn("Enter the staff member's name.");
+    const isNew = !edit.id;
     await window.api.staff.save(edit);
     setEdit(null); reload();
+    toast.ok(isNew ? `${edit.name} added to the staff register.` : "Staff record updated.");
   };
-  const remove = async (id) => {
-    if (confirm("Permanently delete this staff record?")) { await window.api.staff.remove(id); reload(); }
+  const remove = async (st) => {
+    const ok = await confirm({
+      title: "Delete this staff record?", danger: true, confirmLabel: "Delete permanently",
+      message: `${st.name} will be removed along with their payroll and attendance history.`
+    });
+    if (!ok) return;
+    await window.api.staff.remove(st.id); reload();
+    toast.ok("Staff record deleted.");
   };
   const toggleLeft = async (s) => {
     const leaving = s.status === "Active";
-    if (confirm(leaving ? `Mark ${s.name} as relieved / left?` : `Re-activate ${s.name}?`)) {
-      await window.api.staff.save({ ...s, status: leaving ? "Left" : "Active", dol: leaving && !s.dol ? today() : s.dol });
-      reload();
-    }
+    const ok = await confirm({
+      title: leaving ? "Mark as relieved?" : "Re-activate staff member?",
+      message: leaving
+        ? `${s.name} will be marked relieved and the date of leaving set to today. Their record and letters stay available.`
+        : `${s.name} will appear in attendance, payroll and WhatsApp lists again.`,
+      confirmLabel: leaving ? "Mark relieved" : "Re-activate"
+    });
+    if (!ok) return;
+    await window.api.staff.save({ ...s, status: leaving ? "Left" : "Active", dol: leaving && !s.dol ? today() : s.dol });
+    reload();
+    toast.ok(leaving ? `${s.name} marked relieved.` : `${s.name} is active again.`);
   };
 
   const expLetter = (s) => openDoc(experienceLetterHtml(school, s), `Experience-${s.name}.pdf`);
@@ -76,7 +93,7 @@ export default function Staff({ staff, reload, school, openDoc }) {
                   <button className="btn btn-ghost btn-sm" title={s.status === "Active" ? "Relieve / left" : "Re-activate"} onClick={() => toggleLeft(s)}>
                     {s.status === "Active" ? <LogOut size={12} /> : <RotateCcw size={12} />}
                   </button>{" "}
-                  <button className="btn btn-ghost btn-sm" title="Delete" onClick={() => remove(s.id)}><Trash2 size={12} /></button>
+                  <button className="btn btn-ghost btn-sm" title="Delete" onClick={() => remove(s)}><Trash2 size={12} /></button>
                 </td>
               </tr>
             ))}

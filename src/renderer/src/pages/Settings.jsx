@@ -1,14 +1,16 @@
 import React, { useState } from "react";
 import { Save } from "lucide-react";
-import { Panel, Text } from "../lib/ui.jsx";
+import { Panel, Text, useToast } from "../lib/ui.jsx";
 
 export default function Settings({ school, setSchool }) {
+  const toast = useToast();
   const [s, setS] = useState(school);
   const up = (k, v) => setS({ ...s, [k]: v });
   const save = async () => {
+    if (!(s.name || "").trim()) return toast.warn("School name cannot be empty.");
     const saved = await window.api.settings.save(s);
     setSchool(saved);
-    alert("School particulars saved. They now appear on every certificate and receipt.");
+    toast.ok("School particulars saved — they now appear on every certificate, receipt and ID card.");
   };
   return (
     <Panel title="School particulars" note="These appear on every marksheet, certificate and receipt."

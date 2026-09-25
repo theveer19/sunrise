@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Printer, Save, Trophy } from "lucide-react";
 import { CLASSES, SECTIONS, SUBJECTS, fmtDate, today, gradeOf, divisionOf } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Empty, Field } from "../lib/ui.jsx";
+import { Panel, Modal, Text, Pick, Empty, Field, Tabs, Pill, useToast, useConfirm } from "../lib/ui.jsx";
 import { marksheetHtml, finalMarksheetHtml } from "../lib/templates";
 
 /* helper: pct for a student in an exam given a subject->marks map */
@@ -15,6 +15,8 @@ function examPct(exam, map) {
 }
 
 export default function Exams({ students, school, openDoc }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [tab, setTab] = useState("entry");
   const [exams, setExams] = useState([]);
   const [examId, setExamId] = useState("");
@@ -22,10 +24,14 @@ export default function Exams({ students, school, openDoc }) {
   const [marks, setMarks] = useState({});          // studentId -> {subject: value}
   const [rollMap, setRollMap] = useState({});      // studentId -> exam_no (session roll)
 
-  const loadExams = async () => {
+  const loadExams = async (selectId) => {
     const list = await window.api.exams.list();
     setExams(list);
-    if (!examId && list[0]) setExamId(list[0].id);
+    // keep the current selection if it still exists, otherwise pick the newest exam
+    setExamId((cur) => {
+      const want = selectId ?? cur;
+      return want && list.some((e) => e.id === Number(want)) ? want : (list[0]?.id ?? "");
+    });
   };
   useEffect(() => { loadExams(); }, []);
   useEffect(() => {
@@ -37,7 +43,7 @@ export default function Exams({ students, school, openDoc }) {
   const roster = exam ? students.filter((s) => s.status === "Active" && s.class === exam.class && (!exam.section || s.section === exam.section)) : [];
 
   useEffect(() => {
-    if (!exam) return;
+    if (!exam) { setMarks({}); return; }
     window.api.exams.marks(exam.id).then((rows) => {
       const m = {};
       rows.forEach((r) => { (m[r.student_id] = m[r.student_id] || {})[r.subject] = r.marks; });
@@ -48,19 +54,34 @@ export default function Exams({ students, school, openDoc }) {
   const blank = { name: "Final Examination", term: "Final", class: "8", section: "", max_marks: 100, pass_marks: 33, exam_date: today(), subjects: ["English", "Hindi", "Mathematics", "Science", "Social Science"] };
 
   const createExam = async () => {
-    if (!creating.subjects.length) return alert("Select at least one subject.");
+    if (!creating.name.trim()) return toast.warn("Enter the examination name.");
+    if (!creating.subjects.length) return toast.warn("Select at least one subject.");
+    if (!(creating.max_marks > 0)) return toast.warn("Max marks must be more than 0.");
+    if (creating.pass_marks > creating.max_marks) return toast.warn("Pass marks cannot be more than max marks.");
     const saved = await window.api.exams.save(creating);
     setCreating(null);
-    await loadExams();
-    setExamId(saved.id);
+    await loadExams(saved.id);
+    toast.ok(`${saved.name} created for Class ${saved.class}${saved.section ? "-" + saved.section : ""}.`);
   };
   const removeExam = async () => {
-    if (confirm("Delete this examination and its marks?")) {
-      await window.api.exams.remove(exam.id);
-      setExamId(""); loadExams();
-    }
+    const ok = await confirm({
+      title: "Delete this examination?", danger: true, confirmLabel: "Delete examination",
+      message: `${exam.name} and every mark entered against it will be removed. This cannot be undone.`
+    });
+    if (!ok) return;
+    await window.api.exams.remove(exam.id);
+    setMarks({});
+    loadExams("");
+    toast.ok("Examination deleted.");
   };
   const setMark = async (sid, sub, val) => {
+    // keep marks within 0 … max marks
+    if (val !== "") {
+      const n = Number(val);
+      if (Number.isNaN(n)) return;
+      if (n < 0) val = "0";
+      else if (n > exam.max_marks) val = String(exam.max_marks);
+    }
     setMarks((m) => ({ ...m, [sid]: { ...(m[sid] || {}), [sub]: val } }));
     await window.api.exams.setMark(exam.id, sid, sub, val);
   };
@@ -77,10 +98,7 @@ export default function Exams({ students, school, openDoc }) {
 
   return (
     <>
-      <div className="tabs">
-        <button className={"tab" + (tab === "entry" ? " on" : "")} onClick={() => setTab("entry")}>Marks entry</button>
-        <button className={"tab" + (tab === "result" ? " on" : "")} onClick={() => setTab("result")}>Final result &amp; rank</button>
-      </div>
+      <Tabs value={tab} onChange={setTab} tabs={[["entry", "Marks entry"], ["result", "Final result & rank"]]} />
 
       {tab === "entry" && (
         <>
@@ -115,7 +133,8 @@ export default function Exams({ students, school, openDoc }) {
                       {roster.map((st) => {
                         const m = marks[st.id] || {};
                         const got = exam.subjects.reduce((a, s) => a + Number(m[s] || 0), 0);
-                        const pct = (got / (exam.max_marks * exam.subjects.length)) * 100;
+                        const maxTotal = exam.max_marks * exam.subjects.length;
+                        const pct = maxTotal ? (got / maxTotal) * 100 : 0;
                         return (
                           <tr key={st.id}>
                             <td>{st.roll}</td>
@@ -185,7 +204,19 @@ export default function Exams({ students, school, openDoc }) {
 }
 
 /* ---------- Final result & rank ------------------------------------- */
+function ExamPick({ exams, label, value, onChange }) {
+  return (
+    <Field label={label}>
+      <select className="inp" value={value} onChange={(ev) => onChange(ev.target.value)}>
+        <option value="">— none —</option>
+        {exams.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.term})</option>)}
+      </select>
+    </Field>
+  );
+}
+
 function ResultTab({ exams, students, school, openDoc, rollMap, saveExamNo, studentWithRoll }) {
+  const toast = useToast();
   const [cls, setCls] = useState("8");
   const [sec, setSec] = useState("A");
   const [qId, setQId] = useState("");
@@ -253,7 +284,7 @@ function ResultTab({ exams, students, school, openDoc, rollMap, saveExamNo, stud
   const outOf = ranked.length;
 
   const openFinal = (row) => {
-    if (!finalExam) return alert("Select the Final examination first.");
+    if (!finalExam) return toast.warn("Select the Final examination first.");
     const summary = {
       averagePct: row.avg ?? 0,
       grade: gradeOf(row.avg ?? 0)[1],
@@ -268,21 +299,27 @@ function ResultTab({ exams, students, school, openDoc, rollMap, saveExamNo, stud
     openDoc(html, `Final-Result-${row.st.name}.pdf`);
   };
 
-  const CLS = [...new Set(students.map((s) => s.class))];
-  const SEC = [...new Set(students.filter((s) => s.class === cls).map((s) => s.section))];
+  const CLS = CLASSES.filter((c) => students.some((s) => s.status === "Active" && s.class === c));
+  const SEC = [...new Set(students.filter((s) => s.status === "Active" && s.class === cls).map((s) => s.section))].sort();
+  const changeClass = (c) => {
+    setCls(c);
+    const secs = [...new Set(students.filter((s) => s.status === "Active" && s.class === c).map((s) => s.section))].sort();
+    if (secs.length && !secs.includes(sec)) setSec(secs[0]);
+  };
+
 
   return (
     <>
       <Panel title="Final result & rank" note="Pick a class + section and its three exams. The app averages the term percentages, ranks students, and prints a consolidated marksheet.">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ width: 120 }}><Pick label="Class" value={cls} onChange={setCls} options={CLS.length ? CLS : CLASSES} /></div>
+          <div style={{ width: 120 }}><Pick label="Class" value={cls} onChange={changeClass} options={CLS.length ? CLS : CLASSES} /></div>
           <div style={{ width: 120 }}><Pick label="Section" value={sec} onChange={setSec} options={SEC.length ? SEC : SECTIONS} /></div>
-          <div style={{ flex: "1 1 180px" }}><Pick label="Quarterly exam" value={qId} onChange={setQId} options={["", ...forClass.map((e) => e.id)]} /></div>
-          <div style={{ flex: "1 1 180px" }}><Pick label="Half-Yearly exam" value={hId} onChange={setHId} options={["", ...forClass.map((e) => e.id)]} /></div>
-          <div style={{ flex: "1 1 180px" }}><Pick label="Final exam" value={fId} onChange={setFId} options={["", ...forClass.map((e) => e.id)]} /></div>
+          <div style={{ flex: "1 1 180px" }}><ExamPick exams={forClass} label="Quarterly exam" value={qId} onChange={setQId} /></div>
+          <div style={{ flex: "1 1 180px" }}><ExamPick exams={forClass} label="Half-Yearly exam" value={hId} onChange={setHId} /></div>
+          <div style={{ flex: "1 1 180px" }}><ExamPick exams={forClass} label="Final exam" value={fId} onChange={setFId} /></div>
         </div>
         <p style={{ fontSize: 11, color: "var(--slate)", marginBottom: 0 }}>
-          Exam dropdowns show exam IDs — they auto-select by term (Quarterly / Half Yearly / Final). Create those exams for this class to populate them.
+          Exams are picked automatically by term (Quarterly / Half Yearly / Final). Create those exams for this class to fill them in.
         </p>
       </Panel>
 

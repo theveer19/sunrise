@@ -1,4 +1,4 @@
-import { fmtDate, words, dobWords, gradeOf, divisionOf, inr, today, escapeHtml as e } from "./helpers";
+import { fmtDate, fmtMonth, words, dobWords, gradeOf, divisionOf, inr, today, escapeHtml as e } from "./helpers";
 
 /* Sunrise palette: amber → coral gradient, teal accent, ink text */
 const CSS = `
@@ -97,13 +97,13 @@ export function marksheetHtml(school, student, exam, markMap) {
     const p = (v / exam.max_marks) * 100;
     const pass = v >= exam.pass_marks;
     return `<tr><td>${i + 1}</td><td class="subj">${e(s)}</td><td>${exam.max_marks}</td>
-      <td><b>${markMap[s] ?? "&mdash;"}</b></td><td>${gradeOf(p)[1]}</td>
+      <td><b>${markMap[s] != null && markMap[s] !== "" ? e(markMap[s]) : "&mdash;"}</b></td><td>${gradeOf(p)[1]}</td>
       <td class="${pass ? "pass" : "fail"}"><b>${pass ? "Pass" : "Fail"}</b></td></tr>`;
   }).join("");
   const inner = head(school, "Statement of Marks") + `
     <div class="center" style="margin-top:8px;font-size:13px;color:#5a6472">${e(exam.name)} &nbsp;&middot;&nbsp; Session ${e(school.session)}</div>
     <table class="kv">
-      <tr><td class="k">Examination Roll No.</td><td><b>${e(student.exam_no || student.roll || "—")}</b></td><td class="k">Admission No.</td><td>${e(student.adm_no)}</td></tr>
+      <tr><td class="k">Examination Roll No.</td><td><b>${student.exam_no || student.roll ? e(student.exam_no || student.roll) : "&mdash;"}</b></td><td class="k">Admission No.</td><td>${e(student.adm_no)}</td></tr>
       <tr><td class="k">Student's Name</td><td>${e(student.name)}</td><td class="k">Class Roll No.</td><td>${e(student.roll)}</td></tr>
       <tr><td class="k">Father's Name</td><td>${e(student.father)}</td><td class="k">Mother's Name</td><td>${e(student.mother)}</td></tr>
       <tr><td class="k">Class / Section</td><td>${e(student.class)} &mdash; ${e(student.section)}</td><td class="k">Date of Birth</td><td>${fmtDate(student.dob)}</td></tr>
@@ -137,7 +137,7 @@ export function finalMarksheetHtml(school, student, ctx) {
     const p = (v / finalExam.max_marks) * 100;
     const pass = v >= finalExam.pass_marks;
     return `<tr><td>${i + 1}</td><td class="subj">${e(s)}</td><td>${finalExam.max_marks}</td>
-      <td><b>${finalMarks[s] ?? "&mdash;"}</b></td><td>${gradeOf(p)[1]}</td>
+      <td><b>${finalMarks[s] != null && finalMarks[s] !== "" ? e(finalMarks[s]) : "&mdash;"}</b></td><td>${gradeOf(p)[1]}</td>
       <td class="${pass ? "pass" : "fail"}"><b>${pass ? "Pass" : "Fail"}</b></td></tr>`;
   }).join("");
   const finalGot = finalExam.subjects.reduce((a, s) => a + Number(finalMarks[s] || 0), 0);
@@ -150,7 +150,7 @@ export function finalMarksheetHtml(school, student, ctx) {
   const inner = head(school, "Final Result - Consolidated Marksheet") + `
     <div class="center" style="margin-top:8px;font-size:13px;color:#5a6472">Annual Result &middot; Session ${e(school.session)}</div>
     <table class="kv">
-      <tr><td class="k">Examination Roll No.</td><td><b>${e(student.exam_no || student.roll || "&mdash;")}</b></td><td class="k">Admission No.</td><td>${e(student.adm_no)}</td></tr>
+      <tr><td class="k">Examination Roll No.</td><td><b>${student.exam_no || student.roll ? e(student.exam_no || student.roll) : "&mdash;"}</b></td><td class="k">Admission No.</td><td>${e(student.adm_no)}</td></tr>
       <tr><td class="k">Student's Name</td><td>${e(student.name)}</td><td class="k">Class / Section</td><td>${e(student.class)} &mdash; ${e(student.section)}</td></tr>
       <tr><td class="k">Father's Name</td><td>${e(student.father)}</td><td class="k">Mother's Name</td><td>${e(student.mother)}</td></tr>
       <tr><td class="k">Date of Birth</td><td>${fmtDate(student.dob)}</td><td class="k">PEN / Samagra</td><td>${e(student.pen_no)} / ${e(student.samagra_no)}</td></tr>
@@ -185,8 +185,7 @@ export function finalMarksheetHtml(school, student, ctx) {
   return shell(inner, school);
 }
 export function tcHtml(school, student, tc) {
-  const g = student.gender === "Female" ? "her" : "his";
-  const row = (n, k, v) => `<tr><td class="k" style="padding:4px 9px">${n}. ${k}</td><td colspan="3" style="padding:4px 9px">${e(v || "&mdash;")}</td></tr>`;
+  const row = (n, k, v) => `<tr><td class="k" style="padding:4px 9px">${n}. ${k}</td><td colspan="3" style="padding:4px 9px">${v ? e(v) : "&mdash;"}</td></tr>`;
   const inner = head(school, "Transfer Certificate") + `
     <div class="rowmeta" style="margin-top:8px"><span><b>TC No.:</b> ${e(tc.number)}</span><span><b>Admission No.:</b> ${e(student.adm_no)}</span><span><b>Date of Issue:</b> ${fmtDate(tc.date)}</span></div>
     <table class="kv" style="margin-top:8px;font-size:12px">
@@ -196,13 +195,13 @@ export function tcHtml(school, student, tc) {
       ${row(4, "PEN Number", student.pen_no)}
       ${row(5, "Samagra ID", student.samagra_no)}
       ${row(6, "Aadhaar Number", student.aadhar_no)}
-      ${row(7, "Nationality / Category", student.nationality + " / " + student.category)}
+      ${row(7, "Nationality / Category", [student.nationality, student.category].filter(Boolean).join(" / "))}
       ${row(8, "Date of First Admission", fmtDate(student.doa))}
       ${row(9, "Date of Birth (figures)", fmtDate(student.dob))}
       ${row(10, "Date of Birth (words)", dobWords(student.dob))}
-      ${row(11, "Class in which last studied", "Class " + tc.lastClass)}
+      ${row(11, "Class in which last studied", tc.lastClass ? "Class " + tc.lastClass : "")}
       ${row(12, "Board examination last taken", school.board + ", " + school.session)}
-      ${row(13, "Qualified for promotion", tc.qualifiedForPromotion + (tc.promotedTo ? " &mdash; promoted to Class " + tc.promotedTo : ""))}
+      ${row(13, "Qualified for promotion", tc.qualifiedForPromotion + (tc.promotedTo ? " — promoted to Class " + tc.promotedTo : ""))}
       ${row(14, "Subjects studied", tc.subjectsStudied)}
       ${row(15, "Total working days", tc.workingDays)}
       ${row(16, "Days present", tc.daysPresent)}
@@ -345,5 +344,239 @@ export function letterheadHtml(school, opts) {
       <div style="font-size:11px;color:#5a6472">${e(school.name)}</div>
     </div>
     ${seal(school, "SCHOOL<br>SEAL")}`;
+  return shell(inner, school);
+}
+/* ==================================================================== */
+/*  ID cards — 8 per A4 sheet, cut along the guides                     */
+/* ==================================================================== */
+const ID_CSS = `
+.sheet{width:210mm;min-height:297mm;background:#fff;padding:9mm 8mm;display:flex;flex-wrap:wrap;
+  gap:4mm;align-content:flex-start;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.idc{width:92mm;height:59mm;border:1px dashed #c9b99c;border-radius:4mm;overflow:hidden;position:relative;
+  background:#fff;display:flex;flex-direction:column}
+.idc-top{background:linear-gradient(135deg,#E5533B,#F6A623);color:#fff;padding:3mm 4mm;display:flex;
+  align-items:center;gap:2.5mm}
+.idc-top.staff{background:linear-gradient(135deg,#17968f,#0f6f6a)}
+.idc-logo{width:9mm;height:9mm;border-radius:50%;background:rgba(255,255,255,.22);display:flex;
+  align-items:center;justify-content:center;font-weight:800;font-size:3.4mm;flex:0 0 9mm;
+  border:0.4mm solid rgba(255,255,255,.55)}
+.idc-school{font-size:3.5mm;font-weight:800;line-height:1.15;letter-spacing:.2px}
+.idc-sub{font-size:2.3mm;opacity:.92;line-height:1.3;margin-top:.4mm}
+.idc-body{display:flex;gap:3mm;padding:3mm 4mm;flex:1}
+.idc-photo{width:19mm;height:23mm;border:0.4mm solid #e0d3bf;border-radius:1.5mm;background:#fdf7ee;
+  display:flex;align-items:center;justify-content:center;flex:0 0 19mm;font-size:2.4mm;color:#b9a37c;text-align:center;line-height:1.4}
+.idc-fields{flex:1;min-width:0}
+.idc-name{font-size:4mm;font-weight:800;color:#1c2430;line-height:1.15;margin-bottom:1.6mm}
+.idc-row{display:flex;font-size:2.6mm;line-height:1.5;color:#1c2430;margin-bottom:.5mm}
+.idc-row b{width:17mm;flex:0 0 17mm;color:#8a5a1a;font-weight:600}
+.idc-foot{background:#fdf4e6;border-top:0.4mm solid #f0e0c6;padding:1.8mm 4mm;display:flex;
+  justify-content:space-between;align-items:center;font-size:2.2mm;color:#7a6a52}
+.idc-sign{text-align:right;line-height:1.3}
+.idc-strip{position:absolute;right:4mm;top:14mm;width:16mm;text-align:center}
+`;
+
+export function idCardSheetHtml(school, people, kind) {
+  const isStudent = kind === "student";
+  const card = (p) => {
+    const rows = isStudent ? [
+      ["Class", `${e(p.class)} - ${e(p.section)}`],
+      ["Adm. No.", e(p.adm_no) || "&mdash;"],
+      ["Father", e(p.father) || "&mdash;"],
+      ["D.O.B.", fmtDate(p.dob)],
+      ["Contact", e(p.phone) || "&mdash;"],
+    ] : [
+      ["Designation", e(p.designation) || "&mdash;"],
+      ["Emp. ID", e(p.emp_id) || "&mdash;"],
+      ["Department", e(p.department) || "&mdash;"],
+      ["Blood Gr.", e(p.blood_group) || "&mdash;"],
+      ["Contact", e(p.phone) || "&mdash;"],
+    ];
+    return `<div class="idc">
+      <div class="idc-top${isStudent ? "" : " staff"}">
+        <div class="idc-logo">${e(school.initials)}</div>
+        <div style="min-width:0">
+          <div class="idc-school">${e(school.name)}</div>
+          <div class="idc-sub">${e(school.address)}</div>
+          <div class="idc-sub">${isStudent ? "STUDENT IDENTITY CARD" : "STAFF IDENTITY CARD"} &middot; ${e(school.session)}</div>
+        </div>
+      </div>
+      <div class="idc-body">
+        <div class="idc-photo">Affix<br>photo</div>
+        <div class="idc-fields">
+          <div class="idc-name">${e(p.name)}</div>
+          ${rows.map(([k, v]) => `<div class="idc-row"><b>${k}</b> ${v}</div>`).join("")}
+        </div>
+      </div>
+      <div class="idc-foot">
+        <div>Valid for session ${e(school.session)}<br>${e(school.phone)}</div>
+        <div class="idc-sign">_______________<br>Principal</div>
+      </div>
+    </div>`;
+  };
+  // 8 cards per page
+  const pages = [];
+  for (let i = 0; i < people.length; i += 8) pages.push(people.slice(i, i + 8));
+  return `<style>${ID_CSS}</style>` + pages.map((group) =>
+    `<div class="sheet">${group.map(card).join("")}</div>`).join("");
+}
+
+/* ==================================================================== */
+/*  Salary slip                                                         */
+/* ==================================================================== */
+export function salarySlipHtml(school, staff, p) {
+  const gross = Number(p.basic || 0) + Number(p.allowances || 0);
+  const net = Number(p.net || 0);
+  const row = (k, v, cls = "") => `<tr><td class="subj">${k}</td><td class="${cls}" style="text-align:right">${v}</td></tr>`;
+  const inner = head(school, "Salary Slip") + `
+    <div class="rowmeta"><span><b>Month:</b> ${fmtMonth(p.month)}</span>
+      <span><b>Employee:</b> ${e(staff.emp_id) || "&mdash;"}</span>
+      <span><b>Slip date:</b> ${p.paid_date ? fmtDate(p.paid_date) : fmtDate(today())}</span></div>
+    <table class="kv">
+      <tr><td class="k">Name</td><td>${e(staff.name)}</td><td class="k">Designation</td><td>${e(staff.designation) || "&mdash;"}</td></tr>
+      <tr><td class="k">Department</td><td>${e(staff.department) || "&mdash;"}</td><td class="k">Date of joining</td><td>${fmtDate(staff.doj)}</td></tr>
+      <tr><td class="k">Payment mode</td><td>${e(p.mode) || "&mdash;"}</td><td class="k">Loss of pay</td><td>${Number(p.lop_days) || 0} day(s)</td></tr>
+    </table>
+
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <div style="flex:1">
+        <table class="marks">
+          <thead><tr><th colspan="2">Earnings</th></tr></thead>
+          <tbody>
+            ${row("Basic salary", inr(p.basic))}
+            ${row("Allowances (HRA, travel)", inr(p.allowances))}
+            <tr class="total"><td style="text-align:right">Gross</td><td style="text-align:right">${inr(gross)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="flex:1">
+        <table class="marks">
+          <thead><tr><th colspan="2">Deductions</th></tr></thead>
+          <tbody>
+            ${row("Provident fund & others", inr(Number(p.deductions || 0)))}
+            ${row("Loss of pay", Number(p.lop_days) ? `${p.lop_days} day(s)` : "Nil")}
+            <tr class="total"><td style="text-align:right">Total deductions</td><td style="text-align:right">${inr(p.deductions)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="chip"><div class="lab">Gross earnings</div><div class="val">${inr(gross)}</div></div>
+      <div class="chip"><div class="lab">Total deductions</div><div class="val">${inr(p.deductions)}</div></div>
+      <div class="chip"><div class="lab">Net pay</div><div class="val pass">${inr(net)}</div></div>
+      <div class="chip"><div class="lab">Status</div><div class="val ${p.paid_date ? "pass" : "fail"}">${p.paid_date ? "PAID" : "PENDING"}</div></div>
+    </div>
+    <div class="note"><b>Net pay in words:</b> Rupees ${words(net)} only.</div>
+    ${p.remark ? `<div class="note"><b>Remark:</b> ${e(p.remark)}</div>` : ""}
+    <div class="note">This is a computer-generated salary slip and does not require a physical signature unless countersigned below.</div>
+    ${signRow(school, ["Prepared by", "Accountant", "Principal"])}
+    ${seal(school, "ACCOUNTS")}`;
+  return shell(inner, school);
+}
+
+/* ==================================================================== */
+/*  Monthly attendance register                                         */
+/* ==================================================================== */
+export function attendanceRegisterHtml(school, ctx) {
+  const { month, cls, sec, days, data } = ctx;
+  const SHORT = { Present: "P", Absent: "A", Late: "L", Leave: "LV" };
+  const header = days.map((d) => `<th style="padding:4px 2px;font-size:8px">${d.slice(8)}</th>`).join("");
+  const rows = data.map(({ student, marks, stats }, i) => `
+    <tr>
+      <td style="text-align:center">${i + 1}</td>
+      <td class="subj" style="white-space:nowrap">${e(student.name)}</td>
+      ${days.map((d) => {
+        const v = SHORT[marks[d]] || "&middot;";
+        const bad = marks[d] === "Absent";
+        return `<td style="padding:4px 2px;font-size:8.5px;${bad ? "color:#c0392b;font-weight:700" : ""}">${v}</td>`;
+      }).join("")}
+      <td style="font-weight:700">${stats.present}/${stats.total}</td>
+      <td style="font-weight:700;${stats.pct < 75 ? "color:#c0392b" : "color:#0f8a4c"}">${stats.pct.toFixed(0)}%</td>
+    </tr>`).join("");
+
+  const totalPct = data.length
+    ? (data.reduce((a, r) => a + r.stats.present, 0) / Math.max(1, data.reduce((a, r) => a + r.stats.total, 0))) * 100
+    : 0;
+
+  const inner = head(school, "Monthly Attendance Register") + `
+    <div class="rowmeta"><span><b>Month:</b> ${fmtMonth(month)}</span>
+      <span><b>Class:</b> ${e(cls)} - ${e(sec)}</span>
+      <span><b>Working days:</b> ${days.length}</span>
+      <span><b>Class average:</b> ${totalPct.toFixed(1)}%</span></div>
+    <table class="marks" style="margin-top:10px;font-size:9.5px">
+      <thead><tr>
+        <th style="width:22px">#</th><th style="text-align:left">Student</th>
+        ${header}
+        <th>Present</th><th>%</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="note">P = Present &middot; A = Absent &middot; L = Late (counted present) &middot; LV = Leave &middot; &middot; = not marked.
+      Attendance below 75% is shown in red.</div>
+    ${signRow(school, ["Class Teacher", "Checked by", "Principal"])}
+    ${seal(school, "ATTENDANCE")}`;
+  return shell(inner, school);
+}
+
+/* ==================================================================== */
+/*  Weekly timetable                                                    */
+/* ==================================================================== */
+export function timetableHtml(school, ctx) {
+  const { title, rows, byClass, staffById } = ctx;
+  const DAY_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const TIMES = {
+    1: "08:00 - 08:45", 2: "08:45 - 09:30", 3: "09:30 - 10:15", 4: "10:35 - 11:20",
+    5: "11:20 - 12:05", 6: "12:05 - 12:50", 7: "13:20 - 14:05", 8: "14:05 - 14:50"
+  };
+  const cell = (day, p) => rows.find((r) => r.day === day && Number(r.period) === p);
+  const body = [1, 2, 3, 4, 5, 6, 7, 8].map((p) => `
+    <tr>
+      <td class="subj" style="white-space:nowrap;font-size:9.5px">Period ${p}<br>
+        <span style="font-weight:400;color:#7a8494;font-size:8.5px">${TIMES[p]}</span></td>
+      ${DAY_LIST.map((d) => {
+        const c = cell(d, p);
+        if (!c) return `<td style="color:#c9c1b4">&mdash;</td>`;
+        const second = byClass ? `Class ${e(c.class)}-${e(c.section)}` : (e(staffById?.[c.staff_id] || ""));
+        return `<td><b>${e(c.subject)}</b>${second ? `<br><span style="font-size:8.5px;color:#7a8494">${second}</span>` : ""}
+          ${c.room ? `<br><span style="font-size:8px;color:#a09684">${e(c.room)}</span>` : ""}</td>`;
+      }).join("")}
+    </tr>`).join("");
+
+  const inner = head(school, "Weekly Timetable") + `
+    <div class="center" style="margin-top:8px;font-size:13px;color:#5a6472">${e(title)} &nbsp;&middot;&nbsp; Session ${e(school.session)}</div>
+    <table class="marks" style="margin-top:12px;font-size:10px">
+      <thead><tr><th style="width:74px">Period</th>${DAY_LIST.map((d) => `<th>${d}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="note">Short break 10:15 - 10:35 &middot; Lunch 12:50 - 13:20. Saturday is a half day (periods 1 to 4).</div>
+    ${signRow(school, ["Prepared by", "Exam In-charge", "Principal"])}
+    ${seal(school, "ACADEMIC")}`;
+  return shell(inner, school);
+}
+
+/* ==================================================================== */
+/*  Notice on the school letterhead                                     */
+/* ==================================================================== */
+export function noticeHtml(school, n) {
+  const paras = String(n.body || "").split(/\n+/).map((p) => `<p style="margin:0 0 12px">${e(p)}</p>`).join("");
+  const inner = head(school, "Notice") + `
+    <div class="rowmeta" style="margin-top:6px">
+      <span><b>Notice No.:</b> ${e(school.initials)}/NOT/${String(n.id || "").padStart(3, "0")}</span>
+      <span><b>Date:</b> ${fmtDate(n.date)}</span>
+      <span><b>For:</b> ${e(n.audience)}</span>
+    </div>
+    <div class="center" style="margin-top:18px">
+      <span class="ribbon" style="background:linear-gradient(90deg,${n.priority === "High" ? "#C0392B,#E5533B" : "#17968f,#0f6f6a"})">
+        ${e(n.title)}
+      </span>
+    </div>
+    <div class="body-txt" style="margin-top:22px;line-height:1.95">${paras}</div>
+    ${n.expires ? `<div class="note">This notice remains on the board until ${fmtDate(n.expires)}.</div>` : ""}
+    <div style="margin-top:40px;text-align:right">
+      <div style="height:40px"></div>
+      <div style="font-weight:700">${e(school.principal)}</div>
+      <div style="font-size:11px;color:#5a6472">Principal, ${e(school.name)}</div>
+    </div>
+    ${sealLeft(school, "OFFICE<br>SEAL")}`;
   return shell(inner, school);
 }

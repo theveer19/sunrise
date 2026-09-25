@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Plus, Pencil, Trash2, Save, LogOut, RotateCcw, GraduationCap } from "lucide-react";
-import { CLASSES, SECTIONS, fmtDate, today } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Area, SearchBox, Empty } from "../lib/ui.jsx";
+import { CLASSES, SECTIONS, fmtDate, today, nextClass } from "../lib/helpers";
+import { Panel, Modal, Text, Pick, Area, SearchBox, Empty, Tabs, useToast, useConfirm } from "../lib/ui.jsx";
 
 const blank = () => ({
   adm_no: "", pen_no: "", samagra_no: "", aadhar_no: "", exam_no: "", app_id: "", name: "", father: "", mother: "",
@@ -10,20 +10,12 @@ const blank = () => ({
   blood_group: "", status: "Active"
 });
 
-// next class in the ladder; null means end (class 12 → passed out)
-const nextClass = (c) => {
-  const i = CLASSES.indexOf(c);
-  return i >= 0 && i < CLASSES.length - 1 ? CLASSES[i + 1] : null;
-};
 
 export default function Students({ students, reload }) {
   const [tab, setTab] = useState("register");
   return (
     <>
-      <div className="tabs">
-        <button className={"tab" + (tab === "register" ? " on" : "")} onClick={() => setTab("register")}>Student register</button>
-        <button className={"tab" + (tab === "promote" ? " on" : "")} onClick={() => setTab("promote")}>Promotion & leaving</button>
-      </div>
+      <Tabs value={tab} onChange={setTab} tabs={[["register", "Student register"], ["promote", "Promotion & leaving"]]} />
       {tab === "register" ? <Register students={students} reload={reload} />
         : <Promotion students={students} reload={reload} />}
     </>
@@ -32,6 +24,8 @@ export default function Students({ students, reload }) {
 
 /* ---------------- Register ----------------------------------------- */
 function Register({ students, reload }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [q, setQ] = useState("");
   const [cls, setCls] = useState("All");
   const [showLeft, setShowLeft] = useState(false);
@@ -40,28 +34,38 @@ function Register({ students, reload }) {
   const rows = students.filter((s) =>
     (cls === "All" || s.class === cls) &&
     (showLeft || s.status === "Active") &&
-    ((s.name || "") + s.adm_no + s.exam_no + s.app_id + s.pen_no + s.samagra_no + s.aadhar_no + s.father + s.phone)
-      .toLowerCase().includes(q.toLowerCase()));
+    [s.name, s.adm_no, s.exam_no, s.app_id, s.pen_no, s.samagra_no, s.aadhar_no, s.father, s.phone]
+      .map((v) => v ?? "").join(" ").toLowerCase().includes(q.trim().toLowerCase()));
 
   const save = async () => {
-    if (!edit.name.trim()) return alert("Enter the student's name.");
+    if (!(edit.name || "").trim()) return toast.warn("Enter the student's name.");
+    const isNew = !edit.id;
     await window.api.students.save(edit);
     setEdit(null); reload();
+    toast.ok(isNew ? `${edit.name} admitted to Class ${edit.class}-${edit.section}.` : "Student record updated.");
   };
-  const remove = async (id) => {
-    if (confirm("Permanently delete this student and all linked marks, fees and certificates? This cannot be undone.")) {
-      await window.api.students.remove(id); reload();
-    }
+  const remove = async (s) => {
+    const ok = await confirm({
+      title: "Delete this student?", danger: true, confirmLabel: "Delete permanently",
+      message: `${s.name} and every linked mark, fee receipt and certificate will be removed. This cannot be undone.\n\nTo keep the records but take the student off the roll, use “Mark left” instead.`
+    });
+    if (!ok) return;
+    await window.api.students.remove(s.id); reload();
+    toast.ok("Student record deleted.");
   };
   const toggleLeft = async (s) => {
     const leaving = s.status === "Active";
     const msg = leaving
-      ? `Mark ${s.name} as LEFT (quit the school)? They stay in records but won't appear in fees, exams or WhatsApp lists.`
-      : `Re-activate ${s.name} back into the school?`;
-    if (confirm(msg)) {
-      await window.api.students.save({ ...s, status: leaving ? "Left" : "Active" });
-      reload();
-    }
+      ? `${s.name} stays in the records but will no longer appear in fees, exams, attendance or WhatsApp lists.`
+      : `${s.name} will appear in fees, exams, attendance and WhatsApp lists again.`;
+    const ok = await confirm({
+      title: leaving ? "Mark as left?" : "Re-activate student?",
+      message: msg, confirmLabel: leaving ? "Mark left" : "Re-activate"
+    });
+    if (!ok) return;
+    await window.api.students.save({ ...s, status: leaving ? "Left" : "Active" });
+    reload();
+    toast.ok(leaving ? `${s.name} marked as left.` : `${s.name} is active again.`);
   };
 
   return (
@@ -99,7 +103,7 @@ function Register({ students, reload }) {
                   <button className="btn btn-ghost btn-sm" title={s.status === "Active" ? "Mark left (quit)" : "Re-activate"} onClick={() => toggleLeft(s)}>
                     {s.status === "Active" ? <LogOut size={12} /> : <RotateCcw size={12} />}
                   </button>{" "}
-                  <button className="btn btn-ghost btn-sm" title="Delete" onClick={() => remove(s.id)}><Trash2 size={12} /></button>
+                  <button className="btn btn-ghost btn-sm" title="Delete" onClick={() => remove(s)}><Trash2 size={12} /></button>
                 </td>
               </tr>
             ))}
@@ -162,6 +166,8 @@ const DECISIONS = {
 };
 
 function Promotion({ students, reload }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [cls, setCls] = useState("");
   const [sec, setSec] = useState("");
   const [decisions, setDecisions] = useState({}); // studentId -> key
@@ -190,7 +196,12 @@ function Promotion({ students, reload }) {
     if (!roster.length) return;
     const summary = roster.reduce((a, s) => { a[decOf(s)] = (a[decOf(s)] || 0) + 1; return a; }, {});
     const lines = Object.entries(summary).map(([k, n]) => `• ${n} ${DECISIONS[k]}`).join("\n");
-    if (!confirm(`Apply these changes to Class ${cls}${sec ? "-" + sec : ""}?\n\n${lines}\n\nTip: update the session year in Settings afterwards.`)) return;
+    const ok = await confirm({
+      title: `Promote Class ${cls}${sec ? "-" + sec : ""}?`,
+      message: `${lines}\n\nRoll numbers are cleared for promoted students. Remember to update the session year in Settings afterwards.`,
+      confirmLabel: "Apply changes"
+    });
+    if (!ok) return;
     setBusy(true);
     for (const s of roster) {
       const k = decOf(s);
@@ -207,7 +218,7 @@ function Promotion({ students, reload }) {
     setBusy(false);
     setDecisions({});
     reload();
-    alert("Done. Roll numbers were cleared for promoted students — reassign them in the register if needed.");
+    toast.ok(`${roster.length} student record${roster.length === 1 ? "" : "s"} updated. Reassign roll numbers in the register.`);
   };
 
   return (

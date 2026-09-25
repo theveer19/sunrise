@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Save } from "lucide-react";
 import { today, fmtDate, inr } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Area, Empty, Stat } from "../lib/ui.jsx";
+import { Panel, Modal, Text, Pick, Area, Empty, Stat, DataTable, useToast, useConfirm } from "../lib/ui.jsx";
 
-const CATS = ["Salary", "Rent", "Electricity & water", "Maintenance", "Stationery", "Books & uniform",
+const CATS = ["Rent", "Electricity & water", "Maintenance", "Stationery", "Books & uniform",
   "Transport & fuel", "Events & functions", "Marketing", "Furniture & equipment", "Miscellaneous"];
 
 export default function Expenses() {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [add, setAdd] = useState(null);
   const [month, setMonth] = useState(today().slice(0, 7));
@@ -14,11 +16,22 @@ export default function Expenses() {
   const load = async () => setRows(await window.api.expenses.list());
   useEffect(() => { load(); }, []);
 
-  const blank = { date: today(), category: "Salary", description: "", amount: 0, paid_to: "", mode: "Cash" };
+  const blank = { date: today(), category: "Rent", description: "", amount: "", paid_to: "", mode: "Cash" };
+  const remove = async (r) => {
+    const ok = await confirm({
+      title: "Delete this expense?", danger: true, confirmLabel: "Delete entry",
+      message: `${inr(r.amount)} — ${r.category}${r.description ? ` (${r.description})` : ""} will be removed.`
+    });
+    if (!ok) return;
+    await window.api.expenses.remove(r.id); load();
+    toast.ok("Expense deleted.");
+  };
   const save = async () => {
-    if (!add.amount) return alert("Enter an amount.");
-    await window.api.expenses.add(add);
+    if (!(Number(add.amount) > 0)) return toast.warn("Enter an amount greater than 0.");
+    if (!add.date) return toast.warn("Select the date.");
+    await window.api.expenses.add({ ...add, amount: Number(add.amount) });
     setAdd(null); load();
+    toast.ok(`${inr(add.amount)} recorded under ${add.category}.`);
   };
 
   const inMonth = rows.filter((r) => (r.date || "").startsWith(month));
@@ -36,20 +49,20 @@ export default function Expenses() {
           sub={inr(Object.entries(byCat).sort((a, b) => b[1] - a[1])[0]?.[1] || 0)} tone="var(--teal)" />
       </div>
 
-      <Panel title="Expense register" note="Track salaries, rent, utilities and every outflow."
+      <Panel title="Expense register" note={`${inMonth.length} entr${inMonth.length === 1 ? "y" : "ies"} this month. Staff salaries are recorded separately under Payroll.`}
         action={<div style={{ display: "flex", gap: 8 }}>
           <input className="inp" type="month" style={{ width: 150 }} value={month} onChange={(e) => setMonth(e.target.value)} />
           <button className="btn" onClick={() => setAdd(blank)}><Plus size={14} /> Add expense</button>
         </div>}>
-        {rows.length === 0 ? <Empty>No expenses recorded yet.</Empty> : (
+        {inMonth.length === 0 ? <Empty>{rows.length ? "No expenses in this month. Pick another month above." : "No expenses recorded yet."}</Empty> : (
           <table className="grid">
             <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid to</th><th>Mode</th><th>Amount</th><th></th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {inMonth.map((r) => (
                 <tr key={r.id}>
                   <td>{fmtDate(r.date)}</td><td>{r.category}</td><td>{r.description}</td>
                   <td>{r.paid_to}</td><td>{r.mode}</td><td style={{ fontWeight: 600 }}>{inr(r.amount)}</td>
-                  <td><button className="btn btn-ghost btn-sm" onClick={async () => { if (confirm("Delete entry?")) { await window.api.expenses.remove(r.id); load(); } }}><Trash2 size={12} /></button></td>
+                  <td><button className="btn btn-ghost btn-sm" onClick={() => remove(r)}><Trash2 size={12} /></button></td>
                 </tr>
               ))}
             </tbody>

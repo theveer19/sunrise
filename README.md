@@ -48,6 +48,23 @@ npm run dist:win    # Windows .exe installer (NSIS) → ./release
 npm run dist        # installer for the current OS (dmg on Mac, AppImage on Linux)
 ```
 
+## Web demo (Vercel)
+
+The same screens also run in a normal browser for client demos. Outside Electron the app
+automatically switches to a browser store (`src/renderer/src/lib/webApi.js`) that is pre-filled
+with sample students, staff, exams, fees and expenses and saves changes in that browser.
+"Reset demo data" in the sidebar restores the sample data.
+
+```bash
+npm run dev:web     # run the web demo locally
+npm run build:web   # build it to ./dist-web
+```
+
+Deploy: import the project on Vercel — `vercel.json` already sets the install command,
+`npm run build:web` and the `dist-web` output folder. In the web demo, Print / Download PDF
+open the browser print dialog (choose "Save as PDF"), and WhatsApp uses quick-send links;
+automated bulk sending and on-disk SQLite are desktop-only.
+
 ## WhatsApp notes
 
 - **Quick-send** works immediately and needs nothing installed — it uses `wa.me` links.

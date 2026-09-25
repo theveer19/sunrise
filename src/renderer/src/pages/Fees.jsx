@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { IndianRupee, Printer, Trash2, Save } from "lucide-react";
 import { CLASSES, fmtDate, today, inr } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Empty } from "../lib/ui.jsx";
+import { Panel, Modal, Text, Pick, Empty, Tabs, DataTable, Pill, useToast, useConfirm } from "../lib/ui.jsx";
 import { receiptHtml } from "../lib/templates";
 
 export default function Fees({ students, school, openDoc }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [tab, setTab] = useState("collect");
   const [fees, setFees] = useState([]);
   const [structure, setStructure] = useState({});
@@ -19,7 +21,7 @@ export default function Fees({ students, school, openDoc }) {
     for (const s of active) map[s.id] = await window.api.fees.paidFor(s.id);
     setPaid(map);
   };
-  useEffect(() => { load(); }, [students.length]);
+  useEffect(() => { load(); }, [students]);
 
   const active = students.filter((s) => s.status === "Active");
   const totalCollected = fees.reduce((a, f) => a + Number(f.amount), 0);
@@ -29,12 +31,28 @@ export default function Fees({ students, school, openDoc }) {
     date: today(), head: "Tuition fee", months: "1", remark: ""
   });
 
+  const [saving, setSaving] = useState(false);
   const collect = async () => {
-    const rec = await window.api.fees.add(pay);
+    if (!(Number(pay.amount) > 0)) return toast.warn("Enter an amount greater than 0.");
+    if (!pay.date) return toast.warn("Select the payment date.");
+    if (saving) return;
+    setSaving(true);
+    const rec = await window.api.fees.add({ ...pay, amount: Number(pay.amount) }).finally(() => setSaving(false));
     const s = students.find((x) => x.id === rec.student_id);
     setPay(null);
     await load();
+    toast.ok(`Receipt ${rec.receipt_no} raised for ${inr(rec.amount)}.`);
     openDoc(receiptHtml(school, s, rec), `Receipt-${rec.receipt_no}-${s.name}.pdf`);
+  };
+
+  const removeReceipt = async (f) => {
+    const ok = await confirm({
+      title: "Delete this receipt?", danger: true, confirmLabel: "Delete receipt",
+      message: `Receipt ${f.receipt_no} for ${inr(f.amount)} will be removed from the ledger. The receipt number is not reused.`
+    });
+    if (!ok) return;
+    await window.api.fees.remove(f.id); load();
+    toast.ok("Receipt deleted.");
   };
 
   const reprint = (f) => {
@@ -44,11 +62,8 @@ export default function Fees({ students, school, openDoc }) {
 
   return (
     <>
-      <div className="tabs">
-        {[["collect", "Collect fees"], ["ledger", "Receipt ledger"], ["structure", "Fee structure"]].map(([k, l]) => (
-          <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>
-        ))}
-      </div>
+      <Tabs value={tab} onChange={setTab}
+        tabs={[["collect", "Collect fees"], ["ledger", "Receipt ledger"], ["structure", "Fee structure"]]} />
 
       {tab === "collect" && (
         <Panel title="Collect fees" note="Select a student to raise a receipt. The receipt opens for print/PDF right after.">
@@ -79,11 +94,11 @@ export default function Fees({ students, school, openDoc }) {
                   const s = students.find((x) => x.id === f.student_id) || {};
                   return (
                     <tr key={f.id}>
-                      <td>{f.receipt_no}</td><td>{fmtDate(f.date)}</td><td>{s.name}</td>
+                      <td>{f.receipt_no}</td><td>{fmtDate(f.date)}</td><td>{s.name || "(deleted student)"}</td>
                       <td>{f.head}</td><td>{f.mode}</td><td style={{ fontWeight: 600 }}>{inr(f.amount)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         <button className="btn btn-ghost btn-sm" onClick={() => reprint(f)}><Printer size={12} /></button>{" "}
-                        <button className="btn btn-ghost btn-sm" onClick={async () => { if (confirm("Delete receipt?")) { await window.api.fees.remove(f.id); load(); } }}><Trash2 size={12} /></button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => removeReceipt(f)}><Trash2 size={12} /></button>
                       </td>
                     </tr>
                   );
@@ -95,8 +110,8 @@ export default function Fees({ students, school, openDoc }) {
       )}
 
       {tab === "structure" && (
-        <Panel title="Fee structure" note="Monthly tuition fee by class. Changes save on blur."
-          action={<button className="btn btn-ghost btn-sm" onClick={async () => { await window.api.fees.setStructure(structure); alert("Fee structure saved."); }}><Save size={13} /> Save all</button>}>
+        <Panel title="Fee structure" note="Monthly tuition fee by class. Click “Save all” after making changes."
+          action={<button className="btn btn-ghost btn-sm" onClick={async () => { setStructure(await window.api.fees.setStructure(structure)); toast.ok("Fee structure saved."); }}><Save size={13} /> Save all</button>}>
           <div className="grid-form">
             {CLASSES.map((c) => (
               <Text key={c} label={`Class ${c}`} type="number" value={structure[c] ?? 0}
@@ -121,7 +136,7 @@ export default function Fees({ students, school, openDoc }) {
             </div>
             <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setPay(null)}>Cancel</button>
-              <button className="btn" onClick={collect}><Printer size={14} /> Save & open receipt</button>
+              <button className="btn" onClick={collect} disabled={saving}><Printer size={14} /> {saving ? "Saving…" : "Save & open receipt"}</button>
             </div>
           </Modal>
         );

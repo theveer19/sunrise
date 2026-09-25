@@ -80,6 +80,89 @@ export function initDB() {
   CREATE TABLE IF NOT EXISTS fee_structure (
     class TEXT PRIMARY KEY, amount REAL
   );
+
+  CREATE TABLE IF NOT EXISTS attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL, student_id INTEGER NOT NULL, status TEXT, remark TEXT,
+    UNIQUE(date, student_id),
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS staff_attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL, staff_id INTEGER NOT NULL, status TEXT,
+    UNIQUE(date, staff_id),
+    FOREIGN KEY(staff_id) REFERENCES staff(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS timetable (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class TEXT, section TEXT, day TEXT, period INTEGER, subject TEXT,
+    staff_id INTEGER, room TEXT,
+    UNIQUE(class, section, day, period)
+  );
+
+  CREATE TABLE IF NOT EXISTS books (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT, title TEXT NOT NULL, author TEXT, publisher TEXT,
+    category TEXT, copies INTEGER DEFAULT 1, added_on TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS book_issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id INTEGER NOT NULL, member_type TEXT, member_id INTEGER,
+    issue_date TEXT, due_date TEXT, return_date TEXT, fine REAL DEFAULT 0,
+    FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS routes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL, vehicle_no TEXT, driver TEXT, driver_phone TEXT,
+    fee REAL DEFAULT 0, stops TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS transport_allot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL UNIQUE, route_id INTEGER, stop TEXT, from_date TEXT,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY(route_id) REFERENCES routes(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS rooms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block TEXT, room_no TEXT, type TEXT, capacity INTEGER DEFAULT 1, fee REAL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS hostel_allot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL UNIQUE, room_id INTEGER, from_date TEXT,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT, title TEXT NOT NULL, body TEXT, audience TEXT, priority TEXT, expires TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS homework (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT, class TEXT, section TEXT, subject TEXT, title TEXT,
+    details TEXT, due_date TEXT, staff_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT, end_date TEXT, title TEXT NOT NULL, type TEXT, venue TEXT, description TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS payroll (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL, month TEXT, basic REAL, allowances REAL,
+    deductions REAL, lop_days REAL, net REAL, paid_date TEXT, mode TEXT, remark TEXT,
+    UNIQUE(staff_id, month),
+    FOREIGN KEY(staff_id) REFERENCES staff(id) ON DELETE CASCADE
+  );
   `);
 
   migrate();
@@ -140,12 +223,17 @@ function seedIfEmpty() {
 
 /* ---- settings ------------------------------------------------------ */
 export const getSettings = () => JSON.parse(db.prepare("SELECT data FROM settings WHERE id=1").get().data);
-export const saveSettings = (s) => { db.prepare("UPDATE settings SET data=? WHERE id=1").run(JSON.stringify(s)); return s; };
+const DEFAULT_COUNTERS = { receipt: 1001, tc: 101 };
+const writeSettings = (s) => { db.prepare("UPDATE settings SET data=? WHERE id=1").run(JSON.stringify(s)); return s; };
+// Counters (receipt / TC numbers) are owned by the database. The Settings screen sends back the
+// copy it loaded at startup, so never let that stale copy roll the counters back (duplicate numbers).
+export const saveSettings = (s) => writeSettings({ ...s, counters: { ...DEFAULT_COUNTERS, ...(getSettings().counters || {}) } });
 function bumpCounter(kind) {
   const s = getSettings();
-  const n = s.counters[kind];
+  s.counters = { ...DEFAULT_COUNTERS, ...(s.counters || {}) };
+  const n = Number(s.counters[kind]) || DEFAULT_COUNTERS[kind];
   s.counters[kind] = n + 1;
-  saveSettings(s);
+  writeSettings(s);
   return n;
 }
 
@@ -188,7 +276,7 @@ export function saveExam(e) {
   }
   const info = db.prepare("INSERT INTO exams (name,term,class,section,max_marks,pass_marks,exam_date,subjects) VALUES (?,?,?,?,?,?,?,?)")
     .run(e.name, e.term, e.class, e.section, e.max_marks, e.pass_marks, e.exam_date, JSON.stringify(e.subjects));
-  return { ...e, id: info.lastInsertRowid };
+  return { ...e, id: Number(info.lastInsertRowid) };
 }
 export const deleteExam = (id) => db.prepare("DELETE FROM exams WHERE id=?").run(id);
 export const getMarks = (examId) => db.prepare("SELECT student_id,subject,marks FROM marks WHERE exam_id=?").all(examId);
@@ -255,4 +343,192 @@ export function dashboard() {
     monthlyDemand, tcCount, receiptCount: db.prepare("SELECT COUNT(*) c FROM fees").get().c,
     byClass, recentFees, recentAdmissions
   };
+}
+
+/* ==================================================================== */
+/*  Attendance                                                          */
+/* ==================================================================== */
+const activeIdsFor = (cls, sec) =>
+  db.prepare(`SELECT id FROM students WHERE status='Active' AND class=? ${sec ? "AND section=?" : ""}`)
+    .all(...(sec ? [cls, sec] : [cls])).map((r) => r.id);
+
+export function attendanceForDay(date, cls, sec) {
+  const ids = activeIdsFor(cls, sec);
+  if (!ids.length) return [];
+  return db.prepare(`SELECT * FROM attendance WHERE date=? AND student_id IN (${ids.map(() => "?").join(",")})`).all(date, ...ids);
+}
+export function attendanceForMonth(month, cls, sec) {
+  const ids = db.prepare(`SELECT id FROM students WHERE class=? ${sec ? "AND section=?" : ""}`)
+    .all(...(sec ? [cls, sec] : [cls])).map((r) => r.id);
+  if (!ids.length) return [];
+  return db.prepare(`SELECT * FROM attendance WHERE date LIKE ? AND student_id IN (${ids.map(() => "?").join(",")})`)
+    .all(month + "%", ...ids);
+}
+export function markAttendance(rows) {
+  const up = db.prepare(`INSERT INTO attendance (date,student_id,status,remark) VALUES (?,?,?,?)
+    ON CONFLICT(date,student_id) DO UPDATE SET status=excluded.status, remark=excluded.remark`);
+  db.transaction((list) => list.forEach((r) => up.run(r.date, r.student_id, r.status, r.remark || "")))(rows);
+  return { ok: true, count: rows.length };
+}
+export function attendanceSummary(month) {
+  const rows = db.prepare("SELECT student_id, status, COUNT(*) c FROM attendance WHERE date LIKE ? GROUP BY student_id, status").all(month + "%");
+  const out = {};
+  rows.forEach((r) => {
+    const t = (out[r.student_id] ||= { present: 0, absent: 0, late: 0, leave: 0, total: 0 });
+    t.total += r.c;
+    if (r.status === "Present") t.present += r.c;
+    else if (r.status === "Absent") t.absent += r.c;
+    else if (r.status === "Late") { t.late += r.c; t.present += r.c; }
+    else t.leave += r.c;
+  });
+  return out;
+}
+export const staffAttendanceForDay = (date) => db.prepare("SELECT * FROM staff_attendance WHERE date=?").all(date);
+export function markStaffAttendance(rows) {
+  const up = db.prepare(`INSERT INTO staff_attendance (date,staff_id,status) VALUES (?,?,?)
+    ON CONFLICT(date,staff_id) DO UPDATE SET status=excluded.status`);
+  db.transaction((list) => list.forEach((r) => up.run(r.date, r.staff_id, r.status)))(rows);
+  return { ok: true };
+}
+export function staffAttendanceSummary(month) {
+  const rows = db.prepare("SELECT staff_id, status, COUNT(*) c FROM staff_attendance WHERE date LIKE ? GROUP BY staff_id, status").all(month + "%");
+  const out = {};
+  rows.forEach((r) => {
+    const t = (out[r.staff_id] ||= { present: 0, absent: 0, total: 0 });
+    t.total += r.c;
+    if (r.status === "Absent") t.absent += r.c; else t.present += r.c;
+  });
+  return out;
+}
+
+/* ==================================================================== */
+/*  Generic CRUD for the simpler module tables                          */
+/* ==================================================================== */
+function makeCrud(table, cols, orderBy) {
+  const list = () => db.prepare(`SELECT * FROM ${table} ${orderBy || ""}`).all();
+  const get = (id) => db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
+  const save = (rec) => {
+    if (rec.id) {
+      db.prepare(`UPDATE ${table} SET ${cols.map((c) => `${c}=@${c}`).join(",")} WHERE id=@id`).run({ id: rec.id, ...pick(rec, cols) });
+      return get(rec.id);
+    }
+    const info = db.prepare(`INSERT INTO ${table} (${cols.join(",")}) VALUES (${cols.map((c) => "@" + c).join(",")})`).run(pick(rec, cols));
+    return get(info.lastInsertRowid);
+  };
+  const remove = (id) => db.prepare(`DELETE FROM ${table} WHERE id=?`).run(id);
+  return { list, get, save, remove };
+}
+
+/* ---- timetable ----------------------------------------------------- */
+const TT_COLS = ["class", "section", "day", "period", "subject", "staff_id", "room"];
+const ttCrud = makeCrud("timetable", TT_COLS, "ORDER BY class, section, day, period");
+export const listTimetable = () => ttCrud.list();
+export function saveTimetable(row) {
+  // one subject per class/section/day/period — replace whatever was there
+  db.prepare("DELETE FROM timetable WHERE class=? AND section=? AND day=? AND period=? AND id IS NOT ?")
+    .run(row.class, row.section, row.day, row.period, row.id ?? null);
+  return ttCrud.save(row);
+}
+export const deleteTimetable = (id) => ttCrud.remove(id);
+export const clearTimetable = (cls, sec) => db.prepare("DELETE FROM timetable WHERE class=? AND section=?").run(cls, sec);
+
+/* ---- library ------------------------------------------------------- */
+const bookCrud = makeCrud("books", ["code", "title", "author", "publisher", "category", "copies", "added_on"], "ORDER BY title");
+export const listBooks = () => bookCrud.list();
+export const saveBook = (b) => bookCrud.save(b);
+export const deleteBook = (id) => bookCrud.remove(id);
+export const listIssues = () => db.prepare("SELECT * FROM book_issues ORDER BY id DESC").all();
+export function issueBook(rec) {
+  const info = db.prepare("INSERT INTO book_issues (book_id,member_type,member_id,issue_date,due_date,return_date,fine) VALUES (?,?,?,?,?,'',0)")
+    .run(rec.book_id, rec.member_type, rec.member_id, rec.issue_date, rec.due_date);
+  return db.prepare("SELECT * FROM book_issues WHERE id=?").get(info.lastInsertRowid);
+}
+export function returnBook(id, date, fine) {
+  db.prepare("UPDATE book_issues SET return_date=?, fine=? WHERE id=?").run(date, Number(fine) || 0, id);
+  return db.prepare("SELECT * FROM book_issues WHERE id=?").get(id);
+}
+export const deleteIssue = (id) => db.prepare("DELETE FROM book_issues WHERE id=?").run(id);
+
+/* ---- transport ----------------------------------------------------- */
+const routeCrud = makeCrud("routes", ["name", "vehicle_no", "driver", "driver_phone", "fee", "stops"], "ORDER BY name");
+export const listRoutes = () => routeCrud.list();
+export const saveRoute = (r) => routeCrud.save(r);
+export const deleteRoute = (id) => routeCrud.remove(id);
+export const listTransportAllot = () => db.prepare("SELECT * FROM transport_allot").all();
+export function allotTransport(a) {
+  db.prepare(`INSERT INTO transport_allot (student_id,route_id,stop,from_date) VALUES (?,?,?,?)
+    ON CONFLICT(student_id) DO UPDATE SET route_id=excluded.route_id, stop=excluded.stop, from_date=excluded.from_date`)
+    .run(a.student_id, a.route_id, a.stop, a.from_date);
+  return db.prepare("SELECT * FROM transport_allot WHERE student_id=?").get(a.student_id);
+}
+export const unallotTransport = (studentId) => db.prepare("DELETE FROM transport_allot WHERE student_id=?").run(studentId);
+
+/* ---- hostel -------------------------------------------------------- */
+const roomCrud = makeCrud("rooms", ["block", "room_no", "type", "capacity", "fee"], "ORDER BY block, room_no");
+export const listRooms = () => roomCrud.list();
+export const saveRoom = (r) => roomCrud.save(r);
+export const deleteRoom = (id) => roomCrud.remove(id);
+export const listHostelAllot = () => db.prepare("SELECT * FROM hostel_allot").all();
+export function allotHostel(a) {
+  const room = db.prepare("SELECT * FROM rooms WHERE id=?").get(a.room_id);
+  const taken = db.prepare("SELECT COUNT(*) c FROM hostel_allot WHERE room_id=? AND student_id<>?").get(a.room_id, a.student_id).c;
+  if (room && taken >= Number(room.capacity)) return { ok: false, error: `Room ${room.room_no} is already full (${room.capacity} beds).` };
+  db.prepare(`INSERT INTO hostel_allot (student_id,room_id,from_date) VALUES (?,?,?)
+    ON CONFLICT(student_id) DO UPDATE SET room_id=excluded.room_id, from_date=excluded.from_date`)
+    .run(a.student_id, a.room_id, a.from_date);
+  return { ok: true, row: db.prepare("SELECT * FROM hostel_allot WHERE student_id=?").get(a.student_id) };
+}
+export const unallotHostel = (studentId) => db.prepare("DELETE FROM hostel_allot WHERE student_id=?").run(studentId);
+
+/* ---- notices / homework / events ----------------------------------- */
+const noticeCrud = makeCrud("notices", ["date", "title", "body", "audience", "priority", "expires"], "ORDER BY date DESC, id DESC");
+export const listNotices = () => noticeCrud.list();
+export const saveNotice = (n) => noticeCrud.save(n);
+export const deleteNotice = (id) => noticeCrud.remove(id);
+
+const hwCrud = makeCrud("homework", ["date", "class", "section", "subject", "title", "details", "due_date", "staff_id"], "ORDER BY date DESC, id DESC");
+export const listHomework = () => hwCrud.list();
+export const saveHomework = (h) => hwCrud.save(h);
+export const deleteHomework = (id) => hwCrud.remove(id);
+
+const eventCrud = makeCrud("events", ["date", "end_date", "title", "type", "venue", "description"], "ORDER BY date");
+export const listEvents = () => eventCrud.list();
+export const saveEvent = (e) => eventCrud.save(e);
+export const deleteEvent = (id) => eventCrud.remove(id);
+
+/* ---- payroll ------------------------------------------------------- */
+const PAY_COLS = ["staff_id", "month", "basic", "allowances", "deductions", "lop_days", "net", "paid_date", "mode", "remark"];
+const payCrud = makeCrud("payroll", PAY_COLS, "ORDER BY month DESC, id DESC");
+export const listPayroll = () => payCrud.list();
+export function savePayroll(p) {
+  const rec = {
+    ...p,
+    basic: Number(p.basic) || 0, allowances: Number(p.allowances) || 0,
+    deductions: Number(p.deductions) || 0, lop_days: Number(p.lop_days) || 0
+  };
+  rec.net = rec.basic + rec.allowances - rec.deductions;
+  db.prepare("DELETE FROM payroll WHERE staff_id=? AND month=? AND id IS NOT ?").run(rec.staff_id, rec.month, rec.id ?? null);
+  return payCrud.save(rec);
+}
+export const deletePayroll = (id) => payCrud.remove(id);
+export function generatePayroll(month) {
+  const absent = {};
+  db.prepare("SELECT staff_id, COUNT(*) c FROM staff_attendance WHERE date LIKE ? AND status='Absent' GROUP BY staff_id")
+    .all(month + "%").forEach((r) => (absent[r.staff_id] = r.c));
+  const staff = db.prepare("SELECT * FROM staff WHERE status='Active'").all();
+  let made = 0;
+  db.transaction(() => {
+    staff.forEach((st) => {
+      const exists = db.prepare("SELECT id FROM payroll WHERE staff_id=? AND month=?").get(st.id, month);
+      const basic = Number(st.salary) || 0;
+      if (exists || !basic) return;
+      const lop = absent[st.id] || 0;
+      const allowances = Math.round(basic * 0.1);
+      const deductions = Math.round(basic * 0.04) + Math.round((basic / 30) * lop);
+      db.prepare("INSERT INTO payroll (staff_id,month,basic,allowances,deductions,lop_days,net,paid_date,mode,remark) VALUES (?,?,?,?,?,?,?,'','Bank transfer','')")
+        .run(st.id, month, basic, allowances, deductions, lop, basic + allowances - deductions);
+      made++;
+    });
+  })();
+  return { made };
 }

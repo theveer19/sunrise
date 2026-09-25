@@ -86,6 +86,65 @@ function registerIpc() {
   h("cert:list", (type) => DB.listCertificates(type));
   h("cert:issueTC", (p) => DB.issueTC(p));
 
+  // attendance
+  h("att:forDay", (d, c, s) => DB.attendanceForDay(d, c, s));
+  h("att:forMonth", (m, c, s) => DB.attendanceForMonth(m, c, s));
+  h("att:mark", (rows) => DB.markAttendance(rows));
+  h("att:summary", (m) => DB.attendanceSummary(m));
+  h("att:staffForDay", (d) => DB.staffAttendanceForDay(d));
+  h("att:staffMark", (rows) => DB.markStaffAttendance(rows));
+  h("att:staffSummary", (m) => DB.staffAttendanceSummary(m));
+
+  // timetable
+  h("tt:list", () => DB.listTimetable());
+  h("tt:forClass", (c, s) => DB.listTimetable().filter((t) => t.class === c && t.section === s));
+  h("tt:forTeacher", (id) => DB.listTimetable().filter((t) => Number(t.staff_id) === Number(id)));
+  h("tt:save", (row) => DB.saveTimetable(row));
+  h("tt:delete", (id) => DB.deleteTimetable(id));
+  h("tt:clear", (c, s) => DB.clearTimetable(c, s));
+
+  // library
+  h("lib:books", () => DB.listBooks());
+  h("lib:saveBook", (b) => DB.saveBook(b));
+  h("lib:deleteBook", (id) => DB.deleteBook(id));
+  h("lib:issues", () => DB.listIssues());
+  h("lib:issue", (rec) => DB.issueBook(rec));
+  h("lib:return", (id, date, fine) => DB.returnBook(id, date, fine));
+  h("lib:deleteIssue", (id) => DB.deleteIssue(id));
+
+  // transport
+  h("tr:routes", () => DB.listRoutes());
+  h("tr:saveRoute", (r) => DB.saveRoute(r));
+  h("tr:deleteRoute", (id) => DB.deleteRoute(id));
+  h("tr:allotments", () => DB.listTransportAllot());
+  h("tr:allot", (a) => DB.allotTransport(a));
+  h("tr:unallot", (id) => DB.unallotTransport(id));
+
+  // hostel
+  h("hs:rooms", () => DB.listRooms());
+  h("hs:saveRoom", (r) => DB.saveRoom(r));
+  h("hs:deleteRoom", (id) => DB.deleteRoom(id));
+  h("hs:allotments", () => DB.listHostelAllot());
+  h("hs:allot", (a) => DB.allotHostel(a));
+  h("hs:unallot", (id) => DB.unallotHostel(id));
+
+  // notices / homework / events
+  h("cm:notices", () => DB.listNotices());
+  h("cm:saveNotice", (n) => DB.saveNotice(n));
+  h("cm:deleteNotice", (id) => DB.deleteNotice(id));
+  h("cm:homework", () => DB.listHomework());
+  h("cm:saveHomework", (x) => DB.saveHomework(x));
+  h("cm:deleteHomework", (id) => DB.deleteHomework(id));
+  h("cm:events", () => DB.listEvents());
+  h("cm:saveEvent", (e) => DB.saveEvent(e));
+  h("cm:deleteEvent", (id) => DB.deleteEvent(id));
+
+  // payroll
+  h("pr:list", () => DB.listPayroll());
+  h("pr:save", (p) => DB.savePayroll(p));
+  h("pr:delete", (id) => DB.deletePayroll(id));
+  h("pr:generate", (m) => DB.generatePayroll(m));
+
   // dashboard
   h("dashboard:get", () => DB.dashboard());
 

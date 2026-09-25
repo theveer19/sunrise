@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { ScrollText, Printer, Award } from "lucide-react";
-import { CLASSES, fmtDate, today } from "../lib/helpers";
-import { Panel, Modal, Text, Pick, Empty } from "../lib/ui.jsx";
+import { CLASSES, fmtDate, today, nextClass } from "../lib/helpers";
+import { Panel, Modal, Text, Pick, Empty, Tabs, DataTable, useToast } from "../lib/ui.jsx";
 import { tcHtml, bonafideHtml, characterHtml, studyHtml } from "../lib/templates";
 
 export default function Certificates({ students, school, openDoc, reload }) {
+  const toast = useToast();
   const [tab, setTab] = useState("tc");
   const [tcs, setTcs] = useState([]);
   const [draft, setDraft] = useState(null);
@@ -15,10 +16,9 @@ export default function Certificates({ students, school, openDoc, reload }) {
   const active = students.filter((s) => s.status === "Active");
 
   const startTC = (s) => {
-    const settings = school;
     setDraft({
       student_id: s.id, number: "", date: today(), leavingDate: today(),
-      lastClass: s.class, promotedTo: String(Number(s.class) + 1 || ""),
+      lastClass: s.class, promotedTo: nextClass(s.class) || "",
       qualifiedForPromotion: "Yes", subjectsStudied: "English, Hindi, Mathematics, Science, Social Science",
       workingDays: "220", daysPresent: "205", conduct: "Good",
       gamesActivities: "Participated in school games and cultural activities",
@@ -26,12 +26,16 @@ export default function Certificates({ students, school, openDoc, reload }) {
     });
   };
 
+  const [issuing, setIssuing] = useState(false);
   const issueTC = async () => {
-    const rec = await window.api.cert.issueTC(draft);
+    if (issuing) return;
+    setIssuing(true);
+    const rec = await window.api.cert.issueTC(draft).finally(() => setIssuing(false));
     const s = students.find((x) => x.id === draft.student_id);
     setDraft(null);
     await loadTcs();
     reload();
+    toast.ok(`Transfer certificate ${rec.meta.number} issued — ${s.name} marked as left.`);
     openDoc(tcHtml(school, s, rec.meta), `TC-${s.name}.pdf`);
   };
 
@@ -42,11 +46,8 @@ export default function Certificates({ students, school, openDoc, reload }) {
 
   return (
     <>
-      <div className="tabs">
-        {[["tc", "Transfer certificate"], ["bonafide", "Bonafide"], ["character", "Character"], ["study", "Study"]].map(([k, l]) => (
-          <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>
-        ))}
-      </div>
+      <Tabs value={tab} onChange={setTab} tabs={[["tc", "Transfer certificate"], ["bonafide", "Bonafide"],
+        ["character", "Character"], ["study", "Study"]]} />
 
       {tab === "tc" && (
         <>
@@ -74,9 +75,9 @@ export default function Certificates({ students, school, openDoc, reload }) {
                     const s = students.find((x) => x.id === t.student_id) || {};
                     return (
                       <tr key={t.id}>
-                        <td>{t.number}</td><td style={{ fontWeight: 600 }}>{s.name || t.meta.name}</td>
+                        <td>{t.number}</td><td style={{ fontWeight: 600 }}>{s.name || "(deleted student)"}</td>
                         <td>{fmtDate(t.date)}</td><td>{t.meta.reason}</td>
-                        <td><button className="btn btn-ghost btn-sm" onClick={() => openDoc(tcHtml(school, s, t.meta), `TC-${s.name}.pdf`)}><Printer size={12} /> Reprint</button></td>
+                        <td><button className="btn btn-ghost btn-sm" onClick={() => openDoc(tcHtml(school, s, t.meta), `TC-${s.name || t.number}.pdf`)}><Printer size={12} /> Reprint</button></td>
                       </tr>
                     );
                   })}
@@ -132,7 +133,7 @@ export default function Certificates({ students, school, openDoc, reload }) {
             </div>
             <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
-              <button className="btn" onClick={issueTC}><Printer size={14} /> Issue & open</button>
+              <button className="btn" onClick={issueTC} disabled={issuing}><Printer size={14} /> {issuing ? "Issuing…" : "Issue & open"}</button>
             </div>
           </Modal>
         );

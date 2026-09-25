@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Send, Smartphone, QrCode, LogOut } from "lucide-react";
-import { Panel, Pick, Empty, Area } from "../lib/ui.jsx";
+import { Panel, Pick, Empty, Area, Pill, useToast, useConfirm } from "../lib/ui.jsx";
+import { CLASSES } from "../lib/helpers";
 
 /* templates by audience -> language -> name -> (person, school) => text */
 const T = {
@@ -37,6 +38,8 @@ const T = {
 };
 
 export default function WhatsApp({ students, staff = [], school }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [wa, setWa] = useState({ status: "disconnected", qr: null });
   const [audience, setAudience] = useState("students");
   const [language, setLanguage] = useState("English");
@@ -49,8 +52,13 @@ export default function WhatsApp({ students, staff = [], school }) {
 
   useEffect(() => {
     window.api.wa.status().then(setWa);
-    window.api.wa.onEvent(setWa);
+    // unsubscribe on unmount, otherwise every visit to this page adds another listener
+    const off = window.api.wa.onEvent(setWa);
+    return () => { if (typeof off === "function") off(); };
   }, []);
+  const isWeb = wa.status === "web";
+  const connect = async () => setWa(await window.api.wa.connect());
+  const disconnect = async () => setWa(await window.api.wa.disconnect());
 
   const templateSet = T[audience][language];
   const templateNames = Object.keys(templateSet);
@@ -72,13 +80,25 @@ export default function WhatsApp({ students, staff = [], school }) {
   const toggle = (id) => setSelected((m) => ({ ...m, [id]: !m[id] }));
   const allOn = recipients.length > 0 && recipients.every((p) => selected[p.id]);
   const toggleAll = () => { const v = !allOn; const m = {}; recipients.forEach((p) => (m[p.id] = v)); setSelected(m); };
-  const quickSend = (p) => window.api.wa.quick(numFor(p), build(p));
+  const quickSend = (p) => {
+    const text = build(p);
+    if (!text.trim()) return toast.warn("Write the message first.");
+    return window.api.wa.quick(numFor(p), text);
+  };
 
   const sendBulk = async () => {
     const list = recipients.filter((p) => selected[p.id]);
-    if (!list.length) return alert("Select at least one recipient.");
+    if (!list.length) return toast.warn("Select at least one recipient.");
+    if (isCustom && !custom.trim()) return toast.warn("Write the custom message first.");
     if (wa.status !== "ready") {
-      if (confirm("Automated WhatsApp is not connected. Send via WhatsApp quick-links instead (opens each chat)?")) list.forEach(quickSend);
+      if (list.length === 1) return quickSend(list[0]);
+      const ok = await confirm({
+        title: "Send with quick-links?",
+        message: `Automated WhatsApp is not connected. ${list.length} WhatsApp chats will open with the message ready to send.`
+          + (isWeb ? "\n\nIf only one opens, allow pop-ups for this site in your browser." : ""),
+        confirmLabel: `Open ${list.length} chats`
+      });
+      if (ok) list.forEach(quickSend);
       return;
     }
     setSending(true);
@@ -88,6 +108,9 @@ export default function WhatsApp({ students, staff = [], school }) {
       results.push({ name: p.name, ok: r.ok, error: r.error });
     }
     setLog(results); setSending(false);
+    const good = results.filter((r) => r.ok).length;
+    if (good === results.length) toast.ok(`Message sent to ${good} recipient${good === 1 ? "" : "s"}.`);
+    else toast.warn(`${good} of ${results.length} sent — see the report below.`);
   };
 
   return (
@@ -95,20 +118,23 @@ export default function WhatsApp({ students, staff = [], school }) {
       <Panel title="WhatsApp centre" note="Message parents and staff — fee reminders, absentee alerts, salary and meeting notices, in English or Hindi."
         action={
           wa.status === "ready"
-            ? <button className="btn btn-ghost btn-sm" onClick={() => window.api.wa.disconnect()}><LogOut size={13} /> Disconnect</button>
-            : <button className="btn btn-sm" onClick={() => window.api.wa.connect()}><QrCode size={13} /> Connect WhatsApp</button>
+            ? <button className="btn btn-ghost btn-sm" onClick={disconnect}><LogOut size={13} /> Disconnect</button>
+            : isWeb ? null
+            : <button className="btn btn-sm" onClick={connect} disabled={wa.status === "authenticating"}><QrCode size={13} /> Connect WhatsApp</button>
         }>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           <span className="pill" style={{ color: wa.status === "ready" ? "var(--ok)" : "var(--warn)", borderColor: "currentColor" }}>
             {wa.status === "ready" ? "Connected — automated sending on" :
              wa.status === "qr" ? "Scan QR to connect" :
              wa.status === "authenticating" ? "Authenticating…" :
-             wa.status === "error" ? "Automated mode unavailable — quick-links still work" : "Not connected"}
+             wa.status === "error" ? "Automated mode unavailable — quick-links still work" :
+             isWeb ? "Quick-send mode (automated bulk sending is in the desktop app)" : "Not connected"}
           </span>
           <span style={{ fontSize: 12, color: "var(--slate)" }}>
             Quick-send (green button per row) always works with zero setup — it opens WhatsApp with the message ready.
           </span>
         </div>
+        {wa.error && wa.status !== "web" && <p style={{ fontSize: 12, color: "var(--danger)", marginBottom: 0 }}>{wa.error}</p>}
         {wa.status === "qr" && wa.qr && (
           <div style={{ marginTop: 14, display: "flex", gap: 14, alignItems: "center" }}>
             <img src={wa.qr} alt="WhatsApp QR" style={{ width: 180, height: 180, border: "1px solid var(--rule)", borderRadius: 8 }} />
@@ -126,7 +152,7 @@ export default function WhatsApp({ students, staff = [], school }) {
           <div style={{ width: 130 }}><Pick label="Language" value={language} onChange={setLanguage} options={["English", "Hindi"]} /></div>
           <div style={{ width: 210 }}><Pick label="Template" value={template} onChange={setTemplate} options={templateNames} /></div>
           {audience === "students" && (
-            <div style={{ width: 130 }}><Pick label="Class filter" value={cls} onChange={setCls} options={["All", ...new Set(students.map((s) => s.class))]} /></div>
+            <div style={{ width: 130 }}><Pick label="Class filter" value={cls} onChange={setCls} options={["All", ...CLASSES.filter((c) => students.some((s) => s.class === c))]} /></div>
           )}
         </div>
         {isCustom && <Area label="Custom message" rows={3} value={custom} onChange={setCustom} />}
