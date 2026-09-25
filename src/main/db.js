@@ -175,6 +175,7 @@ function migrate() {
   const cols = db.prepare("PRAGMA table_info(students)").all().map((c) => c.name);
   if (!cols.includes("exam_no")) db.exec("ALTER TABLE students ADD COLUMN exam_no TEXT");
   if (!cols.includes("app_id")) db.exec("ALTER TABLE students ADD COLUMN app_id TEXT");
+  if (!cols.includes("password")) db.exec("ALTER TABLE students ADD COLUMN password TEXT");
 }
 
 /* ---- seed ---------------------------------------------------------- */
@@ -238,10 +239,16 @@ function bumpCounter(kind) {
 }
 
 /* ---- students ------------------------------------------------------ */
-export const listStudents = () => db.prepare("SELECT * FROM students ORDER BY class, section, CAST(roll AS INTEGER), name").all();
+/* Nursery, LKG, UKG, 1 … 12 — so "10" does not sort before "6" */
+const CLASS_SEQ = ",Nursery,LKG,UKG,1,2,3,4,5,6,7,8,9,10,11,12,";
+export const listStudents = () => db.prepare(
+  `SELECT * FROM students
+   ORDER BY CASE WHEN INSTR(?, ',' || class || ',') = 0 THEN 9999
+                 ELSE INSTR(?, ',' || class || ',') END,
+            section, CAST(roll AS INTEGER), name`).all(CLASS_SEQ, CLASS_SEQ);
 export const getStudent = (id) => db.prepare("SELECT * FROM students WHERE id=?").get(id);
 export function saveStudent(s) {
-  const cols = ["adm_no", "pen_no", "samagra_no", "aadhar_no", "exam_no", "app_id", "name", "father", "mother", "dob", "doa", "class", "section", "roll", "gender", "category", "religion", "nationality", "phone", "whatsapp", "address", "prev_school", "blood_group", "status"];
+  const cols = ["adm_no", "pen_no", "samagra_no", "aadhar_no", "exam_no", "app_id", "name", "father", "mother", "dob", "doa", "class", "section", "roll", "gender", "category", "religion", "nationality", "phone", "whatsapp", "address", "prev_school", "blood_group", "status", "password"];
   if (s.id) {
     db.prepare(`UPDATE students SET ${cols.map((c) => `${c}=@${c}`).join(",")} WHERE id=@id`).run({ id: s.id, ...pick(s, cols) });
     return getStudent(s.id);
@@ -531,4 +538,33 @@ export function generatePayroll(month) {
     });
   })();
   return { made };
+}
+
+
+/* ==================================================================== */
+/*  Student / parent login                                              */
+/* ==================================================================== */
+/* "2012-04-18" -> "18042012", the default student password */
+const dobKey = (dob) => {
+  const m = String(dob || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}${m[2]}${m[1]}` : "";
+};
+
+/* Returns only the matching student's own record — never the whole roll. */
+export function studentLogin(admNo, password) {
+  const key = String(admNo || "").trim();
+  if (!key) return { ok: false, error: "Enter your admission number." };
+  const st = db.prepare("SELECT * FROM students WHERE LOWER(TRIM(adm_no))=LOWER(TRIM(?))").get(key);
+  if (!st) return { ok: false, error: "No student found with that admission number." };
+  if (st.status !== "Active") return { ok: false, error: "This student is no longer on the roll. Please contact the school office." };
+  const given = String(password || "").trim();
+  const expected = String(st.password || "").trim() || dobKey(st.dob);
+  if (!expected) return { ok: false, error: "No password is set for this student yet. Please contact the school office." };
+  if (given !== expected) return { ok: false, error: "Wrong password. The default password is your date of birth as DDMMYYYY." };
+  return { ok: true, student: st };
+}
+
+export function setStudentPassword(studentId, password) {
+  const info = db.prepare("UPDATE students SET password=? WHERE id=?").run(String(password || ""), studentId);
+  return info.changes ? { ok: true } : { ok: false, error: "Student not found." };
 }

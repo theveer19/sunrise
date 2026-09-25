@@ -86,6 +86,10 @@ function registerIpc() {
   h("cert:list", (type) => DB.listCertificates(type));
   h("cert:issueTC", (p) => DB.issueTC(p));
 
+  // student / parent login
+  h("auth:studentLogin", (a, p) => DB.studentLogin(a, p));
+  h("auth:setStudentPassword", (id, p) => DB.setStudentPassword(id, p));
+
   // attendance
   h("att:forDay", (d, c, s) => DB.attendanceForDay(d, c, s));
   h("att:forMonth", (m, c, s) => DB.attendanceForMonth(m, c, s));

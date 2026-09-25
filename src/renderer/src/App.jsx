@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Users, GraduationCap, FileSpreadsheet, IndianRupee, Wallet,
   BadgeCheck, FileSignature, MessageCircle, Settings2, Menu, CalendarCheck, CalendarDays,
-  Clock3, IdCard, Library, Bus, BedDouble, Megaphone, Banknote, BarChart3, Moon, Sun, Search, X
+  Clock3, IdCard, Library, Bus, BedDouble, Megaphone, Banknote, BarChart3, Moon, Sun, Search, X,
+  GraduationCap as GradCap, UserCircle2
 } from "lucide-react";
 import Dashboard from "./pages/Dashboard.jsx";
 import Students from "./pages/Students.jsx";
@@ -23,6 +24,8 @@ import Reports from "./pages/Reports.jsx";
 import Letterhead from "./pages/Letterhead.jsx";
 import WhatsApp from "./pages/WhatsApp.jsx";
 import Settings from "./pages/Settings.jsx";
+import StudentLogin from "./pages/StudentLogin.jsx";
+import StudentPortal from "./pages/StudentPortal.jsx";
 import { DocViewer, ToastHost, ConfirmHost } from "./lib/ui.jsx";
 import { today } from "./lib/helpers";
 
@@ -71,6 +74,9 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [palette, setPalette] = useState(false);
+  // null = school office (no login, as configured), otherwise the signed-in student
+  const [portal, setPortal] = useState(null);   // "login" | { student }
+
   const [theme, setTheme] = useState(() => {
     try { return window.localStorage.getItem(THEME_KEY) || "light"; } catch { return "light"; }
   });
@@ -115,6 +121,31 @@ function Shell() {
   }
   if (!school) {
     return <div style={{ padding: 40, fontFamily: "Inter" }}>Opening {"“"}Sunrise Montessori ERP{"”"}…</div>;
+  }
+
+  if (portal === "login") {
+    // the earliest-admitted active student has the fullest demo record (marks, fees, library)
+    const demo = [...students]
+      .filter((s) => s.status === "Active" && s.adm_no && s.dob)
+      .sort((a, b) => a.id - b.id)[0];
+    return (
+      <>
+        <StudentLogin school={school} onBack={() => setPortal(null)}
+          onSuccess={(student) => setPortal({ student })}
+          demoHint={demo ? { adm_no: demo.adm_no, password: demo.dob.split("-").reverse().join("") } : null} />
+        {doc && <DocViewer html={doc.html} fileName={doc.fileName} onClose={() => setDoc(null)} />}
+      </>
+    );
+  }
+
+  if (portal?.student) {
+    return (
+      <>
+        <StudentPortal student={portal.student} school={school} openDoc={openDoc}
+          theme={theme} setTheme={setTheme} onSignOut={() => setPortal(null)} />
+        {doc && <DocViewer html={doc.html} fileName={doc.fileName} onClose={() => setDoc(null)} />}
+      </>
+    );
   }
 
   const shared = { school, students, staff, openDoc, reload: reloadAll, go: setView };
@@ -191,6 +222,10 @@ function Shell() {
           <div className="topbar-actions">
             <button className="kbd-hint" onClick={() => setPalette(true)}>
               <Search size={13} /> Search <kbd>Ctrl</kbd><kbd>K</kbd>
+            </button>
+            <button className="btn btn-ghost btn-sm portal-btn" onClick={() => setPortal("login")}
+              title="Open the student and parent portal">
+              <UserCircle2 size={14} /> Student portal
             </button>
             <button className="btn btn-ghost btn-sm btn-icon" title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               aria-label="Toggle colour theme" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>

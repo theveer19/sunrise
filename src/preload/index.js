@@ -40,6 +40,10 @@ const api = {
     list: (type) => ipcRenderer.invoke("cert:list", type),
     issueTC: (p) => ipcRenderer.invoke("cert:issueTC", p)
   },
+  auth: {
+    studentLogin: (admNo, password) => ipcRenderer.invoke("auth:studentLogin", admNo, password),
+    setStudentPassword: (id, password) => ipcRenderer.invoke("auth:setStudentPassword", id, password)
+  },
   attendance: {
     forDay: (date, cls, sec) => ipcRenderer.invoke("att:forDay", date, cls, sec),
     forMonth: (month, cls, sec) => ipcRenderer.invoke("att:forMonth", month, cls, sec),

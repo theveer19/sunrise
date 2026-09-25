@@ -66,7 +66,7 @@ function seed() {
     adm_no: "", pen_no: "", samagra_no: "", aadhar_no: "", exam_no: "", app_id: "", name: "", father: "", mother: "",
     dob: "", doa: "2026-04-02", class: "8", section: "A", roll: "", gender: "Male",
     category: "General", religion: "Hindu", nationality: "Indian", phone: "", whatsapp: "",
-    address: "", prev_school: "", blood_group: "", status: "Active", created_at: nowIso(), ...o
+    address: "", prev_school: "", blood_group: "", status: "Active", password: "", created_at: nowIso(), ...o
   });
   S({ adm_no: "2020/0142", pen_no: "PEN23110045", samagra_no: "142556789012", aadhar_no: "5623 8890 1122", exam_no: "80101", name: "Aarav Sharma", father: "Rajesh Sharma", mother: "Sunita Sharma", dob: "2012-04-18", roll: "1", phone: "9826012345", whatsapp: "9826012345", address: "12, Gandhi Nagar, Gwalior", blood_group: "B+" });
   S({ adm_no: "2020/0155", pen_no: "PEN23110061", samagra_no: "142556783341", aadhar_no: "7781 2233 4455", exam_no: "80102", name: "Diya Verma", father: "Manoj Verma", mother: "Rekha Verma", dob: "2012-09-05", roll: "2", gender: "Female", phone: "9425098761", whatsapp: "9425098761", address: "44, Kampoo, Gwalior", blood_group: "O+" });
@@ -285,11 +285,17 @@ function getDb() {
 function tx(fn) { const db = getDb(); const r = fn(db); persist(db); return clone(r); }
 function read(fn) { return clone(fn(getDb())); }
 
-const STUDENT_COLS = ["adm_no", "pen_no", "samagra_no", "aadhar_no", "exam_no", "app_id", "name", "father", "mother", "dob", "doa", "class", "section", "roll", "gender", "category", "religion", "nationality", "phone", "whatsapp", "address", "prev_school", "blood_group", "status"];
+const STUDENT_COLS = ["adm_no", "pen_no", "samagra_no", "aadhar_no", "exam_no", "app_id", "name", "father", "mother", "dob", "doa", "class", "section", "roll", "gender", "category", "religion", "nationality", "phone", "whatsapp", "address", "prev_school", "blood_group", "status", "password"];
 const STAFF_COLS = ["emp_id", "name", "guardian", "gender", "designation", "department", "qualification", "subject", "doj", "dol", "dob", "aadhar_no", "phone", "whatsapp", "email", "address", "salary", "status"];
 const pick = (o, cols) => { const r = {}; cols.forEach((c) => (r[c] = o[c] ?? "")); return r; };
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const rollNum = (r) => { const n = parseInt(r, 10); return Number.isNaN(n) ? 0 : n; };
+/* Nursery, LKG, UKG, 1 … 12 — so "10" does not sort before "6" */
+const CLASS_ORDER = ["Nursery", "LKG", "UKG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const classRank = (c) => {
+  const i = CLASS_ORDER.indexOf(String(c));
+  return i === -1 ? CLASS_ORDER.length : i;
+};
 
 function upsert(db, table, cols, rec) {
   if (rec.id) {
@@ -344,6 +350,11 @@ function upsertIn(db, table, cols, rec) {
   return row;
 }
 const byDateDesc = (a, b) => cmp(b.date || "", a.date || "") || b.id - a.id;
+/* "2012-04-18" -> "18042012", the default student password */
+const dobKey = (dob) => {
+  const m = String(dob || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}${m[2]}${m[1]}` : "";
+};
 
 /* ---- the API ------------------------------------------------------ */
 export function createWebApi() {
@@ -359,7 +370,7 @@ export function createWebApi() {
     },
     students: {
       list: () => later(() => read((db) => [...db.students].sort((a, b) =>
-        cmp(String(a.class), String(b.class)) || cmp(String(a.section), String(b.section)) ||
+        classRank(a.class) - classRank(b.class) || cmp(String(a.section), String(b.section)) ||
         rollNum(a.roll) - rollNum(b.roll) || cmp(String(a.name), String(b.name))))),
       save: (s) => later(() => tx((db) => upsert(db, "students", STUDENT_COLS, s))),
       remove: (id) => later(() => tx((db) => {
@@ -461,6 +472,30 @@ export function createWebApi() {
         byClass, recentFees, recentAdmissions
       };
     })),
+    /* ---- student / parent login ----------------------------------- */
+    auth: {
+      // Returns only the matching student's own record — never the whole roll.
+      // Default password is the date of birth as DDMMYYYY until the office sets one.
+      studentLogin: (admNo, password) => later(() => read((db) => {
+        const key = String(admNo || "").trim().toLowerCase();
+        if (!key) return { ok: false, error: "Enter your admission number." };
+        const st = db.students.find((s) => String(s.adm_no || "").trim().toLowerCase() === key);
+        if (!st) return { ok: false, error: "No student found with that admission number." };
+        if (st.status !== "Active") return { ok: false, error: "This student is no longer on the roll. Please contact the school office." };
+        const given = String(password || "").trim();
+        const expected = String(st.password || "").trim() || dobKey(st.dob);
+        if (!expected) return { ok: false, error: "No password is set for this student yet. Please contact the school office." };
+        if (given !== expected) return { ok: false, error: "Wrong password. The default password is your date of birth as DDMMYYYY." };
+        return { ok: true, student: st };
+      })),
+      setStudentPassword: (studentId, password) => later(() => tx((db) => {
+        const st = db.students.find((s) => s.id === Number(studentId));
+        if (!st) return { ok: false, error: "Student not found." };
+        st.password = String(password || "");
+        return { ok: true };
+      }))
+    },
+
     /* ---- attendance ---------------------------------------------- */
     attendance: {
       // one day for one class/section
