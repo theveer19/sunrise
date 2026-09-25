@@ -443,3 +443,26 @@ table.grid tfoot td{padding:9px 10px;font-weight:700;border-top:2px solid var(--
   .login-body{padding:18px}
   .welcome h2{font-size:20px}
 }
+
+/* login tabs & demo accounts */
+.login-theme{position:fixed;top:18px;right:18px}
+.login-tabs{display:flex;border-bottom:1px solid var(--rule);background:var(--soft)}
+.login-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 8px;
+  border:0;background:transparent;color:var(--slate);font-size:12.5px;font-weight:600;cursor:pointer;
+  font-family:inherit;border-bottom:2px solid transparent}
+.login-tab:hover{color:var(--ink)}
+.login-tab.on{color:var(--sun);background:var(--card);border-bottom-color:var(--sun)}
+.demo-box{margin-top:16px;padding:12px;border:1px dashed var(--rule);border-radius:8px;background:var(--soft)}
+.demo-row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:6px 8px;
+  border:0;background:transparent;border-radius:5px;cursor:pointer;font-family:inherit;text-align:left}
+.demo-row:hover{background:var(--card)}
+.demo-label{font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.demo-cred{font-size:11px;color:var(--slate);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* signed-in staff */
+.staff-chip{display:flex;align-items:center;gap:10px;margin:12px 14px 6px;padding:10px;border-radius:9px;
+  background:rgba(255,255,255,.07)}
+.role-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+  border:1px solid var(--rule);color:var(--slate);white-space:nowrap}
+@media (max-width:620px){ .role-pill{display:none} }

@@ -41,6 +41,8 @@ const api = {
     issueTC: (p) => ipcRenderer.invoke("cert:issueTC", p)
   },
   auth: {
+    staffLogin: (empId, password) => ipcRenderer.invoke("auth:staffLogin", empId, password),
+    setStaffPassword: (id, password) => ipcRenderer.invoke("auth:setStaffPassword", id, password),
     studentLogin: (admNo, password) => ipcRenderer.invoke("auth:studentLogin", admNo, password),
     setStudentPassword: (id, password) => ipcRenderer.invoke("auth:setStudentPassword", id, password)
   },

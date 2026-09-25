@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Users, GraduationCap, FileSpreadsheet, IndianRupee, Wallet,
-  BadgeCheck, FileSignature, MessageCircle, Settings2, Menu, CalendarCheck, CalendarDays,
-  Clock3, IdCard, Library, Bus, BedDouble, Megaphone, Banknote, BarChart3, Moon, Sun, Search, X,
-  GraduationCap as GradCap, UserCircle2
+  BadgeCheck, FileSignature, MessageCircle, Settings2, Menu, CalendarCheck,
+  Clock3, IdCard, Library, Bus, BedDouble, Megaphone, Banknote, BarChart3,
+  Moon, Sun, Search, X, LogOut
 } from "lucide-react";
 import Dashboard from "./pages/Dashboard.jsx";
 import Students from "./pages/Students.jsx";
@@ -24,10 +24,11 @@ import Reports from "./pages/Reports.jsx";
 import Letterhead from "./pages/Letterhead.jsx";
 import WhatsApp from "./pages/WhatsApp.jsx";
 import Settings from "./pages/Settings.jsx";
-import StudentLogin from "./pages/StudentLogin.jsx";
+import Login from "./pages/Login.jsx";
 import StudentPortal from "./pages/StudentPortal.jsx";
 import { DocViewer, ToastHost, ConfirmHost } from "./lib/ui.jsx";
-import { today } from "./lib/helpers";
+import { initialsOf } from "./lib/helpers";
+import { ROLES, roleOf, canSee } from "./lib/roles";
 
 /* nav: [key, label, icon, group] */
 const NAV = [
@@ -74,9 +75,8 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [palette, setPalette] = useState(false);
-  // null = school office (no login, as configured), otherwise the signed-in student
-  const [portal, setPortal] = useState(null);   // "login" | { student }
-
+  // null until someone signs in: { kind: "staff", staff } or { kind: "student", student }
+  const [session, setSession] = useState(null);
   const [theme, setTheme] = useState(() => {
     try { return window.localStorage.getItem(THEME_KEY) || "light"; } catch { return "light"; }
   });
@@ -123,30 +123,29 @@ function Shell() {
     return <div style={{ padding: 40, fontFamily: "Inter" }}>Opening {"“"}Sunrise Montessori ERP{"”"}…</div>;
   }
 
-  if (portal === "login") {
-    // the earliest-admitted active student has the fullest demo record (marks, fees, library)
-    const demo = [...students]
-      .filter((s) => s.status === "Active" && s.adm_no && s.dob)
-      .sort((a, b) => a.id - b.id)[0];
+  const signOut = () => { setSession(null); setView("dash"); setOpen(false); };
+
+  if (!session) {
+    return (
+      <Login school={school} theme={theme} setTheme={setTheme}
+        onStaff={(s) => { setSession({ kind: "staff", staff: s }); setView("dash"); }}
+        onStudent={(s) => setSession({ kind: "student", student: s })} />
+    );
+  }
+
+  if (session.kind === "student") {
     return (
       <>
-        <StudentLogin school={school} onBack={() => setPortal(null)}
-          onSuccess={(student) => setPortal({ student })}
-          demoHint={demo ? { adm_no: demo.adm_no, password: demo.dob.split("-").reverse().join("") } : null} />
+        <StudentPortal student={session.student} school={school} openDoc={openDoc}
+          theme={theme} setTheme={setTheme} onSignOut={signOut} />
         {doc && <DocViewer html={doc.html} fileName={doc.fileName} onClose={() => setDoc(null)} />}
       </>
     );
   }
 
-  if (portal?.student) {
-    return (
-      <>
-        <StudentPortal student={portal.student} school={school} openDoc={openDoc}
-          theme={theme} setTheme={setTheme} onSignOut={() => setPortal(null)} />
-        {doc && <DocViewer html={doc.html} fileName={doc.fileName} onClose={() => setDoc(null)} />}
-      </>
-    );
-  }
+  const me = session.staff;
+  const role = roleOf(me);
+  const nav = NAV.filter(([k]) => canSee(role, k));
 
   const shared = { school, students, staff, openDoc, reload: reloadAll, go: setView };
   const pages = {
@@ -171,7 +170,7 @@ function Shell() {
     settings: <Settings school={school} setSchool={setSchool} />,
   };
 
-  const current = NAV.find((n) => n[0] === view) || NAV[0];
+  const current = nav.find((n) => n[0] === view) || nav[0];
   let lastGroup = "";
 
   return (
@@ -187,7 +186,15 @@ function Shell() {
           </div>
         </div>
 
-        {NAV.map(([k, label, Icon, group]) => {
+        <div className="staff-chip">
+          <span className="avatar">{initialsOf(me.name)}</span>
+          <span style={{ minWidth: 0 }}>
+            <span className="sc-name">{me.name}</span>
+            <span className="sc-sub">{ROLES[role].label} · {me.emp_id || me.designation}</span>
+          </span>
+        </div>
+
+        {nav.map(([k, label, Icon, group]) => {
           const header = group !== lastGroup ? group : null;
           lastGroup = group;
           return (
@@ -202,8 +209,11 @@ function Shell() {
         })}
 
         <div className="side-foot">
-          Session {school.session}<br />
-          {isWeb ? "Demo version — data is saved in this browser." : "Data saved locally on this computer."}
+          <button onClick={signOut} className="signout"><LogOut size={12} /> Sign out</button>
+          <div style={{ marginTop: 8 }}>
+            Session {school.session}<br />
+            {isWeb ? "Demo — data is saved in this browser." : "Data saved locally on this computer."}
+          </div>
           {isWeb && <ResetDemo />}
         </div>
       </aside>
@@ -220,25 +230,24 @@ function Shell() {
             </div>
           </div>
           <div className="topbar-actions">
+            <span className="role-pill" title={ROLES[role].note}>{ROLES[role].label}</span>
             <button className="kbd-hint" onClick={() => setPalette(true)}>
               <Search size={13} /> Search <kbd>Ctrl</kbd><kbd>K</kbd>
             </button>
-            <button className="btn btn-ghost btn-sm portal-btn" onClick={() => setPortal("login")}
-              title="Open the student and parent portal">
-              <UserCircle2 size={14} /> Student portal
-            </button>
-            <button className="btn btn-ghost btn-sm btn-icon" title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              aria-label="Toggle colour theme" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Toggle colour theme"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+            <button className="btn btn-ghost btn-sm" onClick={signOut}><LogOut size={13} /> Sign out</button>
           </div>
         </div>
-        <div className="content">{pages[view]}</div>
+        <div className="content">{canSee(role, view) ? pages[view] : pages.dash}</div>
       </div>
 
       {open && <div className="side-backdrop" onClick={() => setOpen(false)} />}
       {palette && (
-        <CommandPalette students={students} staff={staff} nav={NAV}
+        <CommandPalette students={students} staff={staff} nav={nav}
           onClose={() => setPalette(false)} go={(v) => { setView(v); setPalette(false); }} />
       )}
       {doc && <DocViewer html={doc.html} fileName={doc.fileName} onClose={() => setDoc(null)} />}

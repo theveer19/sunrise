@@ -176,6 +176,8 @@ function migrate() {
   if (!cols.includes("exam_no")) db.exec("ALTER TABLE students ADD COLUMN exam_no TEXT");
   if (!cols.includes("app_id")) db.exec("ALTER TABLE students ADD COLUMN app_id TEXT");
   if (!cols.includes("password")) db.exec("ALTER TABLE students ADD COLUMN password TEXT");
+  const staffCols = db.prepare("PRAGMA table_info(staff)").all().map((c) => c.name);
+  if (!staffCols.includes("password")) db.exec("ALTER TABLE staff ADD COLUMN password TEXT");
 }
 
 /* ---- seed ---------------------------------------------------------- */
@@ -260,7 +262,7 @@ export const deleteStudent = (id) => db.prepare("DELETE FROM students WHERE id=?
 function pick(o, cols) { const r = {}; cols.forEach((c) => (r[c] = o[c] ?? "")); return r; }
 
 /* ---- staff / teachers ---------------------------------------------- */
-const STAFF_COLS = ["emp_id", "name", "guardian", "gender", "designation", "department", "qualification", "subject", "doj", "dol", "dob", "aadhar_no", "phone", "whatsapp", "email", "address", "salary", "status"];
+const STAFF_COLS = ["emp_id", "name", "guardian", "gender", "designation", "department", "qualification", "subject", "doj", "dol", "dob", "aadhar_no", "phone", "whatsapp", "email", "address", "salary", "status", "password"];
 export const listStaff = () => db.prepare("SELECT * FROM staff ORDER BY status, name").all();
 export const getStaff = (id) => db.prepare("SELECT * FROM staff WHERE id=?").get(id);
 export function saveStaff(s) {
@@ -567,4 +569,26 @@ export function studentLogin(admNo, password) {
 export function setStudentPassword(studentId, password) {
   const info = db.prepare("UPDATE students SET password=? WHERE id=?").run(String(password || ""), studentId);
   return info.changes ? { ok: true } : { ok: false, error: "Student not found." };
+}
+
+
+/* Staff sign in with their employee ID. Their role comes from the designation
+   on the staff record, so there is no separate user list to maintain. */
+export function staffLogin(empId, password) {
+  const key = String(empId || "").trim();
+  if (!key) return { ok: false, error: "Enter your employee ID." };
+  const st = db.prepare(`SELECT * FROM staff
+    WHERE LOWER(TRIM(emp_id))=LOWER(TRIM(?)) OR LOWER(TRIM(COALESCE(email,'')))=LOWER(TRIM(?))`).get(key, key);
+  if (!st) return { ok: false, error: "No staff member found with that employee ID." };
+  if (st.status !== "Active") return { ok: false, error: "This account is no longer active. Please contact the Principal." };
+  const given = String(password || "").trim();
+  const expected = String(st.password || "").trim() || dobKey(st.dob);
+  if (!expected) return { ok: false, error: "No password is set for this account yet. Please contact the Principal." };
+  if (given !== expected) return { ok: false, error: "Wrong password. Please try again." };
+  return { ok: true, staff: st };
+}
+
+export function setStaffPassword(staffId, password) {
+  const info = db.prepare("UPDATE staff SET password=? WHERE id=?").run(String(password || ""), staffId);
+  return info.changes ? { ok: true } : { ok: false, error: "Staff member not found." };
 }

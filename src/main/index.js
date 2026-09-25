@@ -87,6 +87,8 @@ function registerIpc() {
   h("cert:issueTC", (p) => DB.issueTC(p));
 
   // student / parent login
+  h("auth:staffLogin", (e, p) => DB.staffLogin(e, p));
+  h("auth:setStaffPassword", (id, p) => DB.setStaffPassword(id, p));
   h("auth:studentLogin", (a, p) => DB.studentLogin(a, p));
   h("auth:setStudentPassword", (id, p) => DB.setStudentPassword(id, p));
 

@@ -84,12 +84,12 @@ function seed() {
   const T = (o) => db.staff.push({
     id: next("staff"), emp_id: "", name: "", guardian: "", gender: "Male", designation: "TGT", department: "Secondary",
     qualification: "", subject: "", doj: "", dol: "", dob: "", aadhar_no: "", phone: "", whatsapp: "", email: "",
-    address: "", salary: "", status: "Active", created_at: nowIso(), ...o
+    address: "", salary: "", status: "Active", password: "", created_at: nowIso(), ...o
   });
-  T({ emp_id: "SMS-T01", name: "Kavita Deshmukh", guardian: "W/o Sh. Anil Deshmukh", gender: "Female", designation: "Principal", department: "Administration", qualification: "M.A., M.Ed.", doj: "2015-06-15", phone: "9826100011", whatsapp: "9826100011", email: "principal@sunrisemontessori.edu.in", salary: 55000 });
-  T({ emp_id: "SMS-T07", name: "Rahul Mishra", guardian: "S/o Sh. R. K. Mishra", designation: "TGT", department: "Secondary", subject: "Mathematics", qualification: "M.Sc., B.Ed.", doj: "2018-07-01", phone: "9893022334", whatsapp: "9893022334", salary: 32000 });
-  T({ emp_id: "SMS-T12", name: "Priya Saxena", guardian: "D/o Sh. Alok Saxena", gender: "Female", designation: "PRT", department: "Primary", subject: "English", qualification: "B.A., D.El.Ed.", doj: "2021-04-01", phone: "9425066778", whatsapp: "9425066778", salary: 24000 });
-  T({ emp_id: "SMS-S03", name: "Ramesh Kumar", guardian: "S/o Sh. Shyam Lal", designation: "Accountant", department: "Accounts", qualification: "B.Com.", doj: "2019-01-10", phone: "9755088990", whatsapp: "9755088990", salary: 21000 });
+  T({ emp_id: "SMS-T01", name: "Kavita Deshmukh", guardian: "W/o Sh. Anil Deshmukh", gender: "Female", designation: "Principal", department: "Administration", qualification: "M.A., M.Ed.", doj: "2015-06-15", phone: "9826100011", whatsapp: "9826100011", email: "principal@sunrisemontessori.edu.in", salary: 55000, password: "admin123" });
+  T({ emp_id: "SMS-T07", name: "Rahul Mishra", guardian: "S/o Sh. R. K. Mishra", designation: "TGT", department: "Secondary", subject: "Mathematics", qualification: "M.Sc., B.Ed.", doj: "2018-07-01", phone: "9893022334", whatsapp: "9893022334", salary: 32000, password: "teacher123" });
+  T({ emp_id: "SMS-T12", name: "Priya Saxena", guardian: "D/o Sh. Alok Saxena", gender: "Female", designation: "PRT", department: "Primary", subject: "English", qualification: "B.A., D.El.Ed.", doj: "2021-04-01", phone: "9425066778", whatsapp: "9425066778", salary: 24000, password: "teacher123" });
+  T({ emp_id: "SMS-S03", name: "Ramesh Kumar", guardian: "S/o Sh. Shyam Lal", designation: "Accountant", department: "Accounts", qualification: "B.Com.", doj: "2019-01-10", phone: "9755088990", whatsapp: "9755088990", salary: 21000, password: "accounts123" });
 
   // exams for 8-A with marks, so marksheets and the final result/rank tab have data
   const subjects = ["English", "Hindi", "Mathematics", "Science", "Social Science"];
@@ -286,7 +286,7 @@ function tx(fn) { const db = getDb(); const r = fn(db); persist(db); return clon
 function read(fn) { return clone(fn(getDb())); }
 
 const STUDENT_COLS = ["adm_no", "pen_no", "samagra_no", "aadhar_no", "exam_no", "app_id", "name", "father", "mother", "dob", "doa", "class", "section", "roll", "gender", "category", "religion", "nationality", "phone", "whatsapp", "address", "prev_school", "blood_group", "status", "password"];
-const STAFF_COLS = ["emp_id", "name", "guardian", "gender", "designation", "department", "qualification", "subject", "doj", "dol", "dob", "aadhar_no", "phone", "whatsapp", "email", "address", "salary", "status"];
+const STAFF_COLS = ["emp_id", "name", "guardian", "gender", "designation", "department", "qualification", "subject", "doj", "dol", "dob", "aadhar_no", "phone", "whatsapp", "email", "address", "salary", "status", "password"];
 const pick = (o, cols) => { const r = {}; cols.forEach((c) => (r[c] = o[c] ?? "")); return r; };
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const rollNum = (r) => { const n = parseInt(r, 10); return Number.isNaN(n) ? 0 : n; };
@@ -487,6 +487,28 @@ export function createWebApi() {
         if (!expected) return { ok: false, error: "No password is set for this student yet. Please contact the school office." };
         if (given !== expected) return { ok: false, error: "Wrong password. The default password is your date of birth as DDMMYYYY." };
         return { ok: true, student: st };
+      })),
+      // Staff sign in with their employee ID. Their role comes from the designation
+      // on the staff record, so there is no separate user list to maintain.
+      staffLogin: (empId, password) => later(() => read((db) => {
+        const key = String(empId || "").trim().toLowerCase();
+        if (!key) return { ok: false, error: "Enter your employee ID." };
+        const st = db.staff.find((s) =>
+          String(s.emp_id || "").trim().toLowerCase() === key ||
+          String(s.email || "").trim().toLowerCase() === key);
+        if (!st) return { ok: false, error: "No staff member found with that employee ID." };
+        if (st.status !== "Active") return { ok: false, error: "This account is no longer active. Please contact the Principal." };
+        const given = String(password || "").trim();
+        const expected = String(st.password || "").trim() || dobKey(st.dob);
+        if (!expected) return { ok: false, error: "No password is set for this account yet. Please contact the Principal." };
+        if (given !== expected) return { ok: false, error: "Wrong password. Please try again." };
+        return { ok: true, staff: st };
+      })),
+      setStaffPassword: (staffId, password) => later(() => tx((db) => {
+        const st = db.staff.find((s) => s.id === Number(staffId));
+        if (!st) return { ok: false, error: "Staff member not found." };
+        st.password = String(password || "");
+        return { ok: true };
       })),
       setStudentPassword: (studentId, password) => later(() => tx((db) => {
         const st = db.students.find((s) => s.id === Number(studentId));
