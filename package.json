@@ -1,7 +1,7 @@
 {
   "name": "sunrise-montessori-erp",
   "version": "1.0.0",
-  "description": "School ERP for Sunrise Montessori School — students, exams, marksheets, TC, certificates, fees, expenses and WhatsApp.",
+  "description": "School management software for Sunrise Montessori School — students, attendance, examinations, certificates, fees, payroll and reports. All data is stored on this computer.",
   "main": "out/main/index.js",
   "author": "OneT Digital Solutions",
   "license": "MIT",
@@ -12,13 +12,13 @@
     "dev:web": "vite --config vite.web.config.js",
     "build:web": "vite build --config vite.web.config.js",
     "dist": "electron-vite build && electron-builder",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "postinstall": "electron-builder install-app-deps"
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "postinstall": "electron-builder install-app-deps",
+    "dist:portable": "electron-vite build && electron-builder --win portable --publish never"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
-    "qrcode": "^1.5.4",
-    "whatsapp-web.js": "^1.26.0"
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
@@ -31,36 +31,66 @@
     "vite": "^5.4.2"
   },
   "build": {
-    "appId": "com.onet.sunrise-erp",
+    "appId": "in.onetdigital.sunrise.erp",
     "productName": "Sunrise Montessori ERP",
+    "copyright": "Copyright © 2026 OneT Digital Solutions",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "out/**/*",
-      "resources/**/*"
+      "resources/**/*",
+      "!**/node_modules/puppeteer*/**",
+      "!**/node_modules/whatsapp-web.js/**",
+      "!**/node_modules/**/*.{md,markdown,map,ts,flow}",
+      "!**/node_modules/**/{test,__tests__,docs,example,examples}/**"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
     ],
     "win": {
       "target": [
-        "nsis"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Sunrise-Montessori-ERP-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sunrise Montessori ERP",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.education"
     },
     "linux": {
       "target": [
         "AppImage"
-      ]
+      ],
+      "icon": "build/icon.png",
+      "category": "Education"
     }
   },
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "whatsapp-web.js": "^1.26.0"
   }
 }
